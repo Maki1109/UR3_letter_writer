@@ -1,0 +1,15 @@
+# Thu muc do colcon sinh ra khi build (khong bao gio commit)
+build/
+install/
+log/
+
+# Python
+__pycache__/
+*.pyc
+
+# Editor / IDE
+.vscode/
+.idea/
+.kilo/
+*.swp
+*~
