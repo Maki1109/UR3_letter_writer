@@ -1,18 +1,3 @@
-// letter_writer_node.cpp
-//
-// Luong xu ly:
-//   1) Doc tham so (chu can ve, kich thuoc, vi tri mat phang, ...)
-//   2) Lay danh sach net (strokes) cua chu cai tu ur3_letter_writer::getLetterStrokes
-//   3) Chuyen tung diem (u, v) chuan hoa -> Pose Cartesian thuc te (x, y, z, orientation)
-//   4) Voi moi net:
-//        - Di chuyen (khong cham mat phang) toi phia tren diem dau (pen up)
-//        - Ha dau cong tac xuong mat phang (pen down) bang Cartesian path ngan
-//        - Ve net bang MoveGroupInterface::computeCartesianPath() qua cac diem con lai
-//        - Nhac dau cong tac len (pen up) truoc khi sang net tiep theo
-//   5) Publish marker de xem truoc hinh dang chu tren RViz (topic /letter_preview)
-//   6) Trong luc robot chuyen dong, doc vi tri THUC TE cua end-effector qua TF
-//      va noi dai dan mot LINE_STRIP marker (topic /letter_trace) -> RViz ve lai
-//      dung "vet but" ma dau cong tac da di qua, thay vi chi xem truoc tinh
 
 #include <atomic>
 #include <chrono>
@@ -95,17 +80,6 @@ bool executeCartesianSegment(
 }
 
 
-// Ghi lai "vet but" THUC TE cua end-effector.
-//
-// Chay tren mot thread rieng song song voi move_group.move()/execute()
-// (deu la lenh blocking): moi chu ky 1/rate_hz giay, doc TF
-// planning_frame -> ee_frame de lay vi tri that cua dau cong tac, roi noi
-// dai dan mot marker LINE_STRIP va publish lai. Nho vay RViz ve ra quy dao
-// dung bang duong ma robot thuc su di, ngay trong luc no dang chuyen dong.
-//
-// Moi net chu duoc ghi vao mot marker id RIENG (beginSegment(id)) de cac net
-// truoc van con nguyen tren man hinh va khong bi noi lien voi net sau bang
-// mot doan thang "ma" khi dau cong tac duoc nhac len di sang net moi.
 class EndEffectorTracer
 {
 public:
@@ -283,7 +257,6 @@ int main(int argc, char ** argv)
   executor.add_node(node);
   std::thread spin_thread([&executor]() { executor.spin(); });
 
-  // ---------------- Tham so cau hinh (co the truyen tu launch file) ----------------
   const std::string letter_name = node->declare_parameter<std::string>("letter_name", "Bao");
   const std::string planning_group = node->declare_parameter<std::string>("planning_group", "ur_manipulator");
 
@@ -322,7 +295,6 @@ int main(int argc, char ** argv)
   const char letter_char = letter_name.empty()
     ? 'A' : static_cast<char>(std::toupper(static_cast<unsigned char>(letter_name[0])));
 
-  // ---------------- Lay danh sach net cua chu cai ----------------
   ur3_letter_writer::Letter strokes;
   try {
     strokes = ur3_letter_writer::getLetterStrokes(letter_char);
@@ -337,7 +309,6 @@ int main(int argc, char ** argv)
     logger, "Se ve chu '%c' (tu ten '%s'), %zu net, kich thuoc %.0fx%.0f mm.",
     letter_char, letter_name.c_str(), strokes.size(), cfg.width * 1000.0, cfg.height * 1000.0);
 
-  // ---------------- Khoi tao MoveGroupInterface ----------------
   moveit::planning_interface::MoveGroupInterface move_group(node, planning_group);
   move_group.setMaxVelocityScalingFactor(vel_scale);
   move_group.setMaxAccelerationScalingFactor(acc_scale);
@@ -354,7 +325,6 @@ int main(int argc, char ** argv)
     ee_trace_frame = "tool0";
   }
 
-  // ---------------- Publish marker xem truoc hinh dang chu ----------------
   auto marker_pub = node->create_publisher<visualization_msgs::msg::Marker>(
     "letter_preview", rclcpp::QoS(1).transient_local());
   // Depth lon hon 1: moi net chu la mot marker id rieng, RViz vao tre van
@@ -366,7 +336,7 @@ int main(int argc, char ** argv)
   std::this_thread::sleep_for(1s);
   publishPreviewMarker(marker_pub, strokes, cfg, planning_frame, node->now());
 
-  // ---------------- Thread ve vet quy dao thuc te cua end-effector ----------------
+
   std::unique_ptr<EndEffectorTracer> tracer;
   if (publish_ee_trace) {
     tracer = std::make_unique<EndEffectorTracer>(
@@ -379,18 +349,13 @@ int main(int argc, char ** argv)
                           : "ghi toan bo hanh trinh (ke ca luc nhac but)");
   }
 
-  // ---------------- Ve tu the san sang (tranh singularity / vi tri xuat phat an toan) ----------------
   RCLCPP_INFO(logger, "Di chuyen ve tu the san sang...");
   move_group.setJointValueTarget(ready_joints);
   move_group.move();
-  // Doi mot chut de action client cua MoveGroupInterface xu ly xong ket qua
-  // cua goal truoc do, tranh gui goal moi qua sat gay nham lan goal/result
-  // (de xay ra hon khi CPU dang ban, vd RViz dang render cung luc).
+
   std::this_thread::sleep_for(200ms);
 
-  // ---------------- Ve tung net chu ----------------
-  // Che do "ghi toan bo hanh trinh": mo mot doan vet duy nhat ngay tu dau va
-  // khong tam dung, nen ca cac doan nhac but chuyen net cung hien tren RViz.
+
   if (tracer && !trace_pen_down_only) {
     tracer->beginSegment(0);
   }
@@ -402,7 +367,6 @@ int main(int argc, char ** argv)
     }
     RCLCPP_INFO(logger, "Net %zu/%zu (%zu diem)", s + 1, strokes.size(), stroke.size());
 
-    // 1) Di chuyen tu do (pen up) toi phia tren diem dau tien cua net
     auto pre_pose = makePose(stroke.front().first, stroke.front().second, false, cfg);
     move_group.setPoseTarget(pre_pose);
     if (move_group.move() != moveit::core::MoveItErrorCode::SUCCESS) {
@@ -411,16 +375,12 @@ int main(int argc, char ** argv)
     }
     std::this_thread::sleep_for(200ms);
 
-    // 2) Ha dau cong tac xuong mat phang (pen down)
     std::vector<geometry_msgs::msg::Pose> down_wp = {
       makePose(stroke.front().first, stroke.front().second, true, cfg)};
     executeCartesianSegment(move_group, down_wp, eef_step, logger);
     std::this_thread::sleep_for(200ms);
 
-    // 3) Ve net: di chuyen Cartesian lien tuc qua cac diem con lai, giu pen down
-    //    Bat dau ghi vet ngay truoc doan nay: diem dau tien cua vet trung
-    //    dung diem dau net, nen hinh ve ra chinh la net chu (khong lan sang
-    //    doan ha but theo phuong vuong goc mat phang).
+
     if (tracer && trace_pen_down_only) {
       tracer->beginSegment(static_cast<int>(s));
     }
@@ -438,7 +398,6 @@ int main(int argc, char ** argv)
       tracer->pauseSegment();
     }
 
-    // 4) Nhac dau cong tac len (pen up) truoc khi sang net tiep theo
     std::vector<geometry_msgs::msg::Pose> up_wp = {
       makePose(stroke.back().first, stroke.back().second, false, cfg)};
     executeCartesianSegment(move_group, up_wp, eef_step, logger);
@@ -446,8 +405,6 @@ int main(int argc, char ** argv)
   }
 
   RCLCPP_INFO(logger, "Da ve xong chu '%c'. Quay ve tu the san sang.", letter_char);
-  // Dung ghi vet truoc khi rut tay ve: giu nguyen hinh chu da ve tren RViz,
-  // khong keo them duong tu cho ve ve tu the san sang.
   if (tracer) {
     tracer->stop();
   }
