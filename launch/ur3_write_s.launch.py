@@ -1,38 +1,3 @@
-"""
-Launch file GOI TAT: "UR3/UR3e viet chu S" + ve quy dao THUC TE cua dau cong tac.
-
-Day chi la lop bao mong quanh ur3_letter_writer.launch.py: co dinh letter:='S'
-va dat san cac tham so kich thuoc/toc do hop voi chu S, con toan bo phan khoi
-dong (fake hardware + ros2_control, MoveIt move_group, RViz) van dung lai
-launch tong de tranh trung lap.
-
-Chay mo phong (mac dinh):
-    ros2 launch ur3_letter_writer ur3_write_s.launch.py
-
-Chay voi robot that:
-    ros2 launch ur3_letter_writer ur3_write_s.launch.py \
-        use_fake_hardware:=false robot_ip:=192.168.1.102
-
-Nhung gi se thay trong RViz (config/letter_view.rviz mo san 2 Marker display):
-  - /letter_preview : hinh chu S du kien (xanh duong, net mong) - ve 1 lan
-                      ngay khi node khoi dong.
-  - /letter_trace   : QUY DAO THUC TE (cyan, net day) - node doc TF
-                      world -> tool0 o 30 Hz trong luc robot dang chay va noi
-                      dai dan duong nay, nen ban thay net chu duoc "viet" theo
-                      dung chuyen dong that cua end-effector.
-
-Tham so hay dung:
-    ur_type:=ur3            # mac dinh ur3e
-    letter_width:=0.12 letter_height:=0.16    # thu nho neu bao qua tam voi
-    plane_x:=0.32 center_z:=0.32              # keo bang ve lai gan robot
-    velocity_scaling:=0.15                    # ve cham lai cho de quan sat
-    trace_pen_down_only:=false                # ve ca doan nhac but di chuyen
-    publish_ee_trace:=false                   # tat hoan toan vet quy dao
-    launch_rviz:=false                        # khong mo RViz
-
-Chu S duoc dinh nghia trong src/letters.cpp (ham makeS): 2 cung elip tiep xuc
-nhau tai tam o chu, 35 diem -> 1 net lien mach, khong nhac but giua chung.
-"""
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
