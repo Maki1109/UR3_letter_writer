@@ -1,0 +1,23 @@
+# =====================================================================
+# LLM Configuration for 9Router (Cloud API Proxy)
+# This requires 9Router running locally on port 20128
+# =====================================================================
+
+# 9Router runs on localhost:20128 and provides /v1 endpoint
+base_url: "http://localhost:20128/v1"
+
+# Model name from your 9Router provider setup
+# Examples: "kr/claude-sonnet-4.5", "gpt-4", etc.
+model: "kr/claude-sonnet-4.5"
+
+# API type: "openai" for 9Router or OpenAI-compatible APIs
+api_type: "openai"
+
+# Your 9Router API key (get from dashboard)
+api_key_env: "NINEROUTER_API_KEY"
+
+# Settings for 9Router
+temperature: 0.0        # 0 for consistent results
+max_tokens: 1024
+timeout_sec: 60
+max_repair_attempts: 1

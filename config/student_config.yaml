@@ -1,0 +1,7 @@
+# =====================================================================
+# THÔNG TIN CÁ NHÂN — SỬA LẠI THEO ĐÚNG MSSV CỦA BẠN TRƯỚC KHI DEMO
+# P = (2 chữ số cuối MSSV) mod 6 -> quyết định màu khối cho từng zone.
+# Chương trình tự tính P và mapping; không cần khai báo mapping tay.
+# =====================================================================
+student_name: "Luong Nguyen Viet Sang"
+student_id: "23020762"

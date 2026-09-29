@@ -1,0 +1,71 @@
+# =====================================================================
+# Mô tả môi trường thao tác (single source of truth)
+# Dùng chung cho: launch (spawn vật vào Gazebo), commander node (MoveIt
+# planning scene + vị trí pick/place), và prompt gửi cho LLM.
+#
+# Đơn vị: mét. Hệ toạ độ: base_link của UR (robot được spawn tại gốc
+# world của Gazebo nên world ≡ base_link).
+# =====================================================================
+
+frame_id: base_link
+
+table:
+  # Bàn thao tác thấp đặt phía trước robot (x > 0)
+  center: [0.40, 0.00, 0.025]   # tâm hộp
+  size:   [0.44, 0.76, 0.05]    # dài x rộng x cao -> mặt bàn ở z = 0.05
+
+cube_size: 0.04                  # cạnh khối lập phương (m)
+
+objects:
+  # Vị trí ban đầu (x, y) của TÂM khối trên mặt bàn; z tự tính = mặt bàn + cạnh/2
+  red_cube:
+    color: red
+    rgba: [0.9, 0.1, 0.1, 1.0]
+    start: [0.24, 0.14]
+  yellow_cube:
+    color: yellow
+    rgba: [0.95, 0.85, 0.1, 1.0]
+    start: [0.24, 0.00]
+  blue_cube:
+    color: blue
+    rgba: [0.1, 0.3, 0.95, 1.0]
+    start: [0.24, -0.14]
+
+zones:
+  # Tâm (x, y) của từng vùng đặt vật
+  zone_a:
+    label: "Zone A"
+    center: [0.37, 0.14]
+    rgba: [0.6, 0.6, 0.6, 1.0]
+  zone_b:
+    label: "Zone B"
+    center: [0.37, 0.00]
+    rgba: [0.6, 0.6, 0.6, 1.0]
+  zone_c:
+    label: "Zone C"
+    center: [0.37, -0.14]
+    rgba: [0.6, 0.6, 0.6, 1.0]
+  temp_zone:
+    # Vùng tạm để "dọn chỗ" khi zone đích đang bị chiếm (mức nâng cao)
+    label: "Temp"
+    center: [0.24, 0.28]
+    rgba: [0.85, 0.85, 0.85, 1.0]
+    is_temporary: true
+
+zone_size: 0.08                  # cạnh ô vuông vẽ vùng (chỉ để hiển thị)
+occupancy_radius: 0.03           # vật cách tâm zone < giá trị này => zone bị chiếm
+
+motion:
+  approach_height: 0.12          # độ cao pre-grasp phía trên mặt trên của khối (m)
+  grasp_clearance: 0.01          # khe hở giữa flange tool0 và mặt trên khối khi "gắp"
+  place_clearance: 0.002         # khối được thả cao hơn mặt bàn 2 mm
+  # Hướng tool0 chúc xuống (quaternion x, y, z, w trong base_link)
+  tool_down_quat_xyzw: [1.0, 0.0, 0.0, 0.0]
+  # Tư thế home (rad): shoulder_pan, shoulder_lift, elbow, wrist_1, wrist_2, wrist_3
+  home_joints: [0.0, -1.5708, 1.5708, -1.5708, -1.5708, 0.0]
+  max_velocity: 0.3              # hệ số scale vận tốc (0..1)
+  max_acceleration: 0.3          # hệ số scale gia tốc (0..1)
+  cartesian_max_step: 0.005      # bước nội suy Cartesian (m)
+  cartesian_min_fraction: 0.95   # tỉ lệ tối thiểu đường Cartesian phải giải được IK
+  planning_time: 5.0
+  planning_attempts: 10

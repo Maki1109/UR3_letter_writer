@@ -1,0 +1,27 @@
+# =====================================================================
+# LLM Configuration for Ollama (Local LLM)
+# This is for OFFLINE usage - no cloud API needed!
+# =====================================================================
+
+# Ollama runs on localhost:11434
+# No API key needed (local)
+base_url: "http://localhost:11434"
+
+# Available models (after pulling):
+# - mistral (recommended, ~7GB)
+# - neural-chat (optimized for chat, ~8GB)
+# - llama2 (older, stable, ~7GB)
+# - phi (small, fast, ~3GB)
+model: "mistral"
+
+# API type: "ollama" for Ollama's native API, "openai" for 9Router or OpenAI-compatible
+api_type: "ollama"
+
+# Not needed for local Ollama, but keep for compatibility
+api_key_env: "NINEROUTER_API_KEY"
+
+# Settings for Ollama
+temperature: 0.0        # 0 for consistent results
+max_tokens: 400
+timeout_sec: 600
+max_repair_attempts: 1

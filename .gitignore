@@ -1,0 +1,21 @@
+# Whitelist: chỉ những file cần để clone về build và chạy được
+*
+!.gitignore
+!README.md
+!package.xml
+!setup.py
+!setup.cfg
+!resource/
+!resource/ur3_llm_control
+!launch/
+!launch/*.py
+!config/
+!config/*.yaml
+!prompts/
+!prompts/*.txt
+!worlds/
+!worlds/*.world
+!ur3_llm_control/
+!ur3_llm_control/*.py
+!test/
+!test/*.py
