@@ -1,0 +1,127 @@
+<?xml version="1.0"?>
+<!--
+  Tay gắp song song 2 ngón (tự xây dựng) gắn vào tool0 của UR3/UR3e.
+
+  - palm: tấm đế gắn cứng vào tool0 (trục z của tool0 hướng ra khỏi mặt bích).
+  - 2 ngón trượt trên 2 khớp tịnh tiến đối xứng theo trục y của tool0.
+    Giá trị khớp q = khoảng cách từ MẶT TRONG của ngón tới tâm tay gắp
+    => độ mở (khe hở giữa hai ngón) = 2 * q.
+  - Gazebo: 2 khớp điều khiển vị trí qua ros2_control (ign_ros2_control),
+    lực kẹp bị chặn bởi effort limit => vật được giữ bằng MA SÁT thật
+    (không gán pose vật, không "dính" vật vào tay).
+  - grasp_center: frame ảo tại tâm vùng kẹp (TCP) để tiện tính toán/hiển thị.
+-->
+<robot xmlns:xacro="http://wiki.ros.org/xacro">
+
+  <xacro:property name="palm_x" value="0.040"/>
+  <xacro:property name="palm_y" value="0.120"/>
+  <xacro:property name="palm_z" value="0.020"/>
+  <xacro:property name="finger_x" value="0.022"/>
+  <xacro:property name="finger_y" value="0.010"/>
+  <xacro:property name="finger_z" value="0.060"/>
+  <xacro:property name="finger_open" value="0.045"/>
+
+  <xacro:macro name="box_inertia" params="m x y z">
+    <inertial>
+      <mass value="${m}"/>
+      <inertia ixx="${m*(y*y+z*z)/12}" ixy="0" ixz="0"
+               iyy="${m*(x*x+z*z)/12}" iyz="0" izz="${m*(x*x+y*y)/12}"/>
+    </inertial>
+  </xacro:macro>
+
+  <xacro:macro name="parallel_gripper" params="parent prefix:='' sim_ignition:=false initial_opening:=0.04">
+    <joint name="${prefix}gripper_base_joint" type="fixed">
+      <parent link="${parent}"/>
+      <child link="${prefix}gripper_palm"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+    </joint>
+
+    <link name="${prefix}gripper_palm">
+      <visual>
+        <origin xyz="0 0 ${palm_z/2}"/>
+        <geometry><box size="${palm_x} ${palm_y} ${palm_z}"/></geometry>
+        <material name="gripper_dark"><color rgba="0.15 0.15 0.15 1"/></material>
+      </visual>
+      <collision>
+        <origin xyz="0 0 ${palm_z/2}"/>
+        <geometry><box size="${palm_x} ${palm_y} ${palm_z}"/></geometry>
+      </collision>
+      <!-- inertial được đặt tại tâm hình học của tấm đế -->
+      <inertial>
+        <origin xyz="0 0 ${palm_z/2}"/>
+        <mass value="0.15"/>
+        <inertia ixx="${0.15*(palm_y*palm_y+palm_z*palm_z)/12}" ixy="0" ixz="0"
+                 iyy="${0.15*(palm_x*palm_x+palm_z*palm_z)/12}" iyz="0"
+                 izz="${0.15*(palm_x*palm_x+palm_y*palm_y)/12}"/>
+      </inertial>
+    </link>
+
+    <!-- Ngón trái = "ngón tựa": giữ vị trí với lực lớn hơn; ngón phải = "ngón kẹp": ép vật vào
+         ngón tựa. Lực không bằng nhau => vật luôn bị ép về đúng tâm, không trôi khi mang đi
+         (hai ngón cùng lực tối đa sẽ cân bằng phiếm định và trôi theo quán tính). -->
+    <xacro:macro name="finger" params="side sign effort">
+      <joint name="${prefix}gripper_${side}_finger_joint" type="prismatic">
+        <parent link="${prefix}gripper_palm"/>
+        <child link="${prefix}gripper_${side}_finger"/>
+        <origin xyz="0 0 ${palm_z}" rpy="0 0 0"/>
+        <axis xyz="0 ${sign} 0"/>
+        <limit lower="0.0" upper="${finger_open}" effort="${effort}" velocity="0.08"/>
+        <dynamics damping="1.0" friction="0.0"/>
+      </joint>
+      <link name="${prefix}gripper_${side}_finger">
+        <visual>
+          <origin xyz="0 ${sign*finger_y/2} ${finger_z/2}"/>
+          <geometry><box size="${finger_x} ${finger_y} ${finger_z}"/></geometry>
+          <material name="gripper_finger"><color rgba="0.35 0.35 0.35 1"/></material>
+        </visual>
+        <collision>
+          <origin xyz="0 ${sign*finger_y/2} ${finger_z/2}"/>
+          <geometry><box size="${finger_x} ${finger_y} ${finger_z}"/></geometry>
+        </collision>
+        <inertial>
+          <origin xyz="0 ${sign*finger_y/2} ${finger_z/2}"/>
+          <mass value="0.03"/>
+          <inertia ixx="${0.03*(finger_y*finger_y+finger_z*finger_z)/12}" ixy="0" ixz="0"
+                   iyy="${0.03*(finger_x*finger_x+finger_z*finger_z)/12}" iyz="0"
+                   izz="${0.03*(finger_x*finger_x+finger_y*finger_y)/12}"/>
+        </inertial>
+      </link>
+      <!-- ma sát cao ở mặt ngón để giữ vật bằng lực kẹp -->
+      <gazebo reference="${prefix}gripper_${side}_finger">
+        <mu1>2.0</mu1>
+        <mu2>2.0</mu2>
+      </gazebo>
+    </xacro:macro>
+
+    <xacro:finger side="left" sign="1" effort="40.0"/>
+    <xacro:finger side="right" sign="-1" effort="15.0"/>
+
+    <!-- TCP: tâm vùng kẹp, cách tool0 = đế + nửa dưới ngón -->
+    <joint name="${prefix}grasp_center_joint" type="fixed">
+      <parent link="${prefix}gripper_palm"/>
+      <child link="${prefix}grasp_center"/>
+      <origin xyz="0 0 ${palm_z + finger_z*0.70}" rpy="0 0 0"/>
+    </joint>
+    <link name="${prefix}grasp_center"/>
+
+    <xacro:if value="${sim_ignition}">
+      <ros2_control name="${prefix}ParallelGripper" type="system">
+        <hardware>
+          <plugin>ign_ros2_control/IgnitionSystem</plugin>
+        </hardware>
+        <joint name="${prefix}gripper_left_finger_joint">
+          <command_interface name="position"/>
+          <state_interface name="position"><param name="initial_value">${initial_opening}</param></state_interface>
+          <state_interface name="velocity"/>
+          <state_interface name="effort"/>
+        </joint>
+        <joint name="${prefix}gripper_right_finger_joint">
+          <command_interface name="position"/>
+          <state_interface name="position"><param name="initial_value">${initial_opening}</param></state_interface>
+          <state_interface name="velocity"/>
+          <state_interface name="effort"/>
+        </joint>
+      </ros2_control>
+    </xacro:if>
+  </xacro:macro>
+</robot>

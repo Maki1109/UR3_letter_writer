@@ -11,7 +11,7 @@ from typing import Callable, Dict, List, Tuple
 from .robot_skills import RobotSkills, SkillStatus
 from .task_validator import SKILL_SPECS, format_step
 
-LABEL_WIDTH = 26
+LABEL_WIDTH = 38
 
 
 def dotted(label: str, status: str, width: int = LABEL_WIDTH) -> str:
@@ -26,11 +26,11 @@ class SkillExecutor:
         self.print = printer
         # Bảng điều phối: tên skill -> hàm thực thi (khoá khớp đúng SKILL_SPECS)
         self.dispatch: Dict[str, Callable[..., SkillStatus]] = {
-            "home": skills.home,
+            "detect_objects": skills.detect_objects,
+            "check_zone": skills.check_zone,
             "pick": skills.pick,
             "place": skills.place,
-            "move_above": skills.move_above,
-            "move_to_zone": skills.move_to_zone,
+            "home": skills.home,
         }
         assert set(self.dispatch) == set(SKILL_SPECS), "dispatch table out of sync"
 
@@ -41,6 +41,7 @@ class SkillExecutor:
             name = step["skill"]
             label = format_step(step)
             fn = self.dispatch.get(name)
+            self.skills.last_detail = ""
             if fn is None:                              # phòng thủ lớp 2
                 status = SkillStatus.FAILED
             else:
@@ -51,7 +52,8 @@ class SkillExecutor:
                     self.skills.log.error(f"{label} raised: {e}")
                     status = SkillStatus.FAILED
             results.append((label, status))
-            self.print(dotted(label, status.value))
+            detail = self.skills.last_detail
+            self.print(dotted(label, status.value) + (f"   [{detail}]" if detail else ""))
             if status != SkillStatus.SUCCESS:
                 self.print("")
                 self.print(f"TASK FAILED at {label}: {status.value}")

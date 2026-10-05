@@ -1,7 +1,9 @@
-"""llm_commander: ROS 2 node nhận câu lệnh ngôn ngữ tự nhiên và điều khiển UR3e.
+"""llm_commander: ROS 2 node nhận câu lệnh ngôn ngữ tự nhiên và điều khiển UR3e + tay gắp.
 
-Luồng:  User command -> LLMPlanner (9Router) -> JSON plan -> TaskValidator
-        -> SkillExecutor -> RobotSkills -> MoveIt 2 -> UR3e (Gazebo)
+Luồng:  Camera -> WorldState  ┐
+        User command ─────────┴-> LLMPlanner -> JSON plan -> TaskValidator
+        -> SkillExecutor -> RobotSkills -> MoveIt 2 + gripper -> UR3e (Gazebo)
+        -> Camera kiểm tra lại kết quả
 
 Cách dùng:
   ros2 run ur3_llm_control llm_commander                     # chế độ gõ lệnh tương tác
@@ -10,9 +12,9 @@ Cách dùng:
      (topic chỉ được xử lý khi chạy với -p interactive:=false)
 
 Lệnh đặc biệt trong chế độ tương tác:
-  /state        in trạng thái thế giới      /student  in nhiệm vụ cá nhân
+  /state        chụp ảnh, in trạng thái (kèm toạ độ)   /student  in nhiệm vụ cá nhân
   /plan {json}  bỏ qua LLM, đưa thẳng plan vào Validator (demo từ chối plan sai)
-  /home         về home                      /quit     thoát
+  /home         về home      /open, /close   mở / đóng tay gắp      /quit  thoát
 """
 from __future__ import annotations
 
@@ -22,6 +24,7 @@ import queue
 import sys
 import threading
 import time
+from typing import Dict, List
 
 import rclpy
 from ament_index_python.packages import get_package_share_directory
@@ -29,18 +32,16 @@ from moveit_msgs.srv import GetCartesianPath
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.parameter import Parameter
-from rclpy.qos import DurabilityPolicy, QoSProfile
 from std_msgs.msg import String
-from visualization_msgs.msg import Marker, MarkerArray
 
-from .gazebo_bridge import DEFAULT_WORLD_NAME, GazeboBridge
+from .camera import CameraPerception
 from .llm_planner import LLMConfig, LLMPlanner
 from .robot_skills import RobotSkills
-from .scene_config import WorldState, load_scene, load_student
+from .scene_config import TEMP_POSITION, WorldState, load_scene, load_student
 from .skill_executor import SkillExecutor
 from .task_validator import TaskValidator, format_step
 
-BAR = "=" * 60
+BAR = "=" * 64
 
 
 def out(msg: str = "") -> None:
@@ -50,7 +51,7 @@ def out(msg: str = "") -> None:
 class LLMCommander(Node):
     def __init__(self):
         super().__init__("llm_commander")
-        # Gazebo chạy với /clock -> node cũng phải dùng sim time (TF, timestamps MoveIt)
+        # Gazebo chạy với /clock -> node cũng phải dùng sim time
         if not self.get_parameter("use_sim_time").value:
             self.set_parameters([Parameter("use_sim_time", Parameter.Type.BOOL, True)])
         share = get_package_share_directory("ur3_llm_control")
@@ -61,29 +62,22 @@ class LLMCommander(Node):
         prompt_path = p("prompt_file", os.path.join(share, "prompts", "system_prompt.txt")).value
         self.command = p("command", "").value
         self.interactive = p("interactive", True).value
-        self.use_gazebo = p("use_gazebo", True).value
+        auto_resolve = p("auto_resolve_occupied_zones", True).value
         group = p("planning_group", "ur_manipulator").value
 
         self.scene = load_scene(scene_path)
         self.student = load_student(student_path, self.scene)
-        self.world = WorldState(self.scene)
-        self.validator = TaskValidator(self.scene)
+        self.world = WorldState(self.scene)                 # rỗng: chỉ camera điền vào
+        self.validator = TaskValidator(self.scene, auto_resolve=auto_resolve)
         with open(prompt_path, "r", encoding="utf-8") as f:
             template = f.read()
         self.llm_cfg = LLMConfig.load(llm_path)
         self.planner = LLMPlanner(self.llm_cfg, template, self.scene, self.student, self.validator)
 
-        def resting_positions():
-            z = self.scene.cube_center_z()
-            return {obj: (x, y, z) for obj, (x, y) in self.world.positions.items()}
-
-        self.gazebo = GazeboBridge(self, self.scene.frame_id, world_name=DEFAULT_WORLD_NAME,
-                                   enabled=self.use_gazebo, resting_positions_fn=resting_positions)
-        self.skills = RobotSkills(self, self.scene, self.world, self.gazebo, group_name=group)
+        self.camera = CameraPerception(self, self.scene)
+        self.skills = RobotSkills(self, self.scene, self.world, self.camera.capture, group_name=group)
         self.executor_ = SkillExecutor(self.skills, printer=out)
 
-        latched = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
-        self.marker_pub = self.create_publisher(MarkerArray, "scene_markers", latched)
         self.status_pub = self.create_publisher(String, "task_status", 10)
         self.cmd_queue: "queue.Queue[str]" = queue.Queue()
         self.create_subscription(String, "user_command", lambda m: self.cmd_queue.put(m.data), 10)
@@ -98,19 +92,29 @@ class LLMCommander(Node):
             self.get_logger().warn(f"LLM warm-up skipped: {e}")
 
     def startup(self) -> None:
-        threading.Thread(target=self._warmup_llm, daemon=True).start()
         cli = self.create_client(GetCartesianPath, "/compute_cartesian_path")
         self.get_logger().info("Waiting for MoveIt move_group ...")
         while not cli.wait_for_service(timeout_sec=2.0):
             self.get_logger().info("  ... move_group not ready yet")
-        if self.use_gazebo:
-            self.gazebo.wait_ready(10.0)   # vị trí ban đầu lấy từ scene.yaml (xem gazebo_bridge.py)
+        self.get_logger().info("Waiting for camera images ...")
+        if not self.camera.wait_ready(60.0):
+            self.get_logger().error("No camera image on %s — check the camera bridge."
+                                    % self.scene.camera.get("image_topic"))
         self.skills.setup_planning_scene()
-        self.publish_markers()
+        self.skills.gripper.open()
+        out("Moving to home and looking at the table ...")
+        self.skills.home()
+        self.observe()
+        threading.Thread(target=self._warmup_llm, daemon=True).start()
         self.print_student()
         out(BAR)
-        out("CURRENT WORLD STATE:")
-        out(self.world.describe())
+        out("CAMERA — CURRENT WORLD STATE:")
+        out(self.world.describe(with_coords=True))
+
+    def observe(self) -> bool:
+        ok = self.skills.refresh_world() is not None
+        self.camera.publish_world(self.world)
+        return ok
 
     def print_student(self) -> None:
         s = self.student
@@ -120,32 +124,6 @@ class LLMCommander(Node):
         for z, c in s.zone_to_color.items():
             out(f"  {z.replace('_', ' ').title()} -> {c.capitalize()}")
 
-    def publish_markers(self) -> None:
-        arr = MarkerArray()
-        stamp = self.get_clock().now().to_msg()
-        for i, z in enumerate(self.scene.zones.values()):
-            sq = Marker()
-            sq.header.frame_id, sq.header.stamp = self.scene.frame_id, stamp
-            sq.ns, sq.id, sq.type, sq.action = "zones", i, Marker.CUBE, Marker.ADD
-            sq.pose.position.x, sq.pose.position.y = z.center_xy
-            sq.pose.position.z = self.scene.table_top_z + 0.001
-            sq.pose.orientation.w = 1.0
-            sq.scale.x = sq.scale.y = self.scene.zone_size
-            sq.scale.z = 0.002
-            sq.color.r, sq.color.g, sq.color.b = 0.2, 0.8, 0.2
-            sq.color.a = 0.6
-            tx = Marker()
-            tx.header = sq.header
-            tx.ns, tx.id, tx.type, tx.action = "zone_labels", i, Marker.TEXT_VIEW_FACING, Marker.ADD
-            tx.pose.position.x, tx.pose.position.y = z.center_xy
-            tx.pose.position.z = self.scene.table_top_z + 0.09
-            tx.pose.orientation.w = 1.0
-            tx.scale.z = 0.03
-            tx.color.r = tx.color.g = tx.color.b = tx.color.a = 1.0
-            tx.text = z.label
-            arr.markers += [sq, tx]
-        self.marker_pub.publish(arr)
-
     # ------------------------------------------------------------------
     def handle_command(self, command: str) -> bool:
         command = command.strip()
@@ -153,8 +131,9 @@ class LLMCommander(Node):
             return True
         if command in ("/quit", "/exit"):
             return False
-        if command == "/state":
-            out(self.world.describe())
+        if command in ("/state", "/detect"):
+            self.observe()
+            out(self.world.describe(with_coords=True))
             return True
         if command == "/student":
             self.print_student()
@@ -162,33 +141,48 @@ class LLMCommander(Node):
         if command == "/home":
             out(f"home() ... {self.skills.home().value}")
             return True
+        if command in ("/open", "/close"):
+            gap = self.skills.gripper.open() if command == "/open" else self.skills.gripper.close()
+            out(f"gripper gap = {gap * 1000:.1f} mm" if gap is not None else "gripper: no joint state")
+            return True
 
         out(BAR)
         out("USER COMMAND:")
         out(command)
         out("")
 
+        # 1. Camera: trạng thái thế giới mới nhất (đầu vào cho LLM + validator)
+        if not self.observe():
+            out("CAMERA: no image — cannot plan without perception.")
+            return True
+        out("CAMERA (world state):")
+        out(self.world.describe())
+        out("")
+
+        # 2. LLM -> plan -> validator
         if command.startswith("/plan"):
             # Kênh kiểm thử: đưa plan JSON thủ công vào Validator (không qua LLM)
             result = self.validator.validate_text(command[len("/plan"):], self.world)
             raw = [command[len("/plan"):].strip()]
-            attempts = 0
         else:
             t0 = time.time()
             outcome = self.planner.plan(command, self.world)
-            result, raw, attempts = outcome.result, outcome.raw_responses, outcome.attempts
-            self.get_logger().info(f"LLM answered in {time.time() - t0:.1f}s, attempts={attempts}")
+            result, raw = outcome.result, outcome.raw_responses
+            self.get_logger().info(f"LLM answered in {time.time() - t0:.1f}s, attempts={outcome.attempts}")
+            if outcome.attempts > 1:
+                out(f"(LLM plan was repaired after validator feedback, attempts={outcome.attempts})")
 
-        out("LLM PLAN:")
+        out("LLM PLAN:" if not result.inserted else "PLAN (LLM + validator):")
         if result.plan:
-            for step in result.plan:
-                out(format_step(step))
+            for k, step in enumerate(result.plan):
+                mark = "   <- added by validator (zone occupied)" if k in result.inserted else ""
+                out(f"  {format_step(step)}{mark}")
         else:
             out(raw[-1] if raw else "(no response)")
         if result.message:
             out(f"(LLM note: {result.message})")
         for w in result.warnings:
-            out(f"[validator warning] {w}")
+            out(f"[validator] {w}")
         out("")
 
         if not result.ok:
@@ -202,10 +196,29 @@ class LLMCommander(Node):
 
         out("VALIDATION: PASSED")
         out("")
+        # 3. Thực thi
         ok, results = self.executor_.run(result.plan)
+        # 4. Camera kiểm tra lại kết quả cuối cùng
+        self.verify(result.plan)
         self._publish_status("SUCCESS" if ok else "FAILED",
                              [f"{label}: {st.value}" for label, st in results])
         return True
+
+    def verify(self, plan: List[Dict[str, str]]) -> None:
+        if not self.skills.at_home:
+            self.skills.home()
+        self.observe()
+        final: Dict[str, str] = {}
+        for step in plan:
+            if step["skill"] == "place":
+                final[step["object"]] = step["zone"]
+        out("")
+        out("CAMERA VERIFICATION:")
+        for obj, zone in final.items():
+            loc = self.world.location_of(obj)
+            good = loc == zone or (zone == TEMP_POSITION and loc == "table")
+            out(f"  {obj}: expected {zone}, camera sees {loc} ... {'OK' if good else 'MISMATCH'}")
+        out("  zones: " + ", ".join(f"{z}={self.world.occupant_of(z) or 'free'}" for z in self.scene.zones))
 
     def _publish_status(self, status: str, details) -> None:
         self.status_pub.publish(String(data=json.dumps({"status": status, "details": details})))
@@ -214,7 +227,7 @@ class LLMCommander(Node):
 def main(args=None):
     rclpy.init(args=args)
     node = LLMCommander()
-    executor = MultiThreadedExecutor(num_threads=4)
+    executor = MultiThreadedExecutor(num_threads=6)
     executor.add_node(node)
     spin = threading.Thread(target=executor.spin, daemon=True)
     spin.start()

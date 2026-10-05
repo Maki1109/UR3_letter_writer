@@ -1,6 +1,6 @@
-# ur3_llm_control — Điều khiển UR3e bằng LLM và Skill-based Planning
+# ur3_llm_control — UR3e + tay gắp + camera điều khiển bằng LLM
 
-Bài thực hành 02 · Môn Tương tác Người – Robot · Ubuntu 22.04 · ROS 2 Humble · Gazebo Sim (Ignition Fortress) · MoveIt 2
+Bài thực hành 03 (phát triển từ Bài 02) · Môn Tương tác Người – Robot · Ubuntu 22.04 · ROS 2 Humble · Gazebo Sim (Ignition Fortress) · MoveIt 2
 
 Sinh viên: **Lương Nguyễn Việt Sang** — MSSV **23020762** (P = 62 mod 6 = 2 → Zone A = Yellow, Zone B = Red, Zone C = Blue)
 
@@ -8,52 +8,64 @@ Sinh viên: **Lương Nguyễn Việt Sang** — MSSV **23020762** (P = 62 mod 6
 
 ## 1. Giới thiệu
 
-Hệ thống cho phép ra lệnh cho cánh tay robot **UR3e** bằng **ngôn ngữ tự nhiên** (tiếng Việt hoặc tiếng Anh), ví dụ:
+Giữ nguyên kiến trúc của Bài 02 và bổ sung **tay gắp thật** và **camera**:
 
 ```
-Please put the red cube in zone B.
-Hãy lấy khối màu vàng và đặt nó vào ô C.
-Arrange all objects according to my student ID.
+Natural Language Command ─► LLM Planner ─► Structured Plan (JSON) ─► Plan Validator ─► Robot Skills ─► MoveIt 2 ─► UR3e + Gripper (Gazebo)
+                                ▲                                         │                  ▲
+         Camera ─► WorldState ──┴──────── trạng thái khối / zone ─────────┘                  │
+            ▲                                                                                 │
+            └──────────── chụp lại trước mỗi pick/place và kiểm tra kết quả cuối ─────────────┘
 ```
 
-Robot gắp/đặt ba khối (`red_cube`, `yellow_cube`, `blue_cube`) giữa các vùng trên bàn (Zone A/B/C và một vùng tạm `temp_zone`) trong mô phỏng Gazebo, mọi chuyển động do MoveIt 2 lập kế hoạch.
+Môi trường Gazebo: 1 UR3e, 1 tay gắp song song 2 ngón, 1 camera RGB nhìn xuống, 1 bàn, 3 zone (`zone_a`, `zone_b`, `zone_c`) và 5 khối (`red_cube`, `yellow_cube`, `blue_cube`, `green_cube`, `purple_cube`). Ban đầu `blue_cube` nằm ở `zone_b` và `green_cube` ở `zone_c`. Vì chỉ có 3 zone cho 5 khối nên zone đích hay bị chiếm.
 
-```
-Câu lệnh tự nhiên ─► LLM Planner ─► Kế hoạch JSON ─► Plan Validator ─► Skill Executor ─► Robot Skills ─► MoveIt 2 ─► UR3e (Gazebo)
-                        ▲                                   │
-                        └──────── lỗi: gửi lại cho LLM sửa ─┘  (repair loop)
-```
+Những điểm mới so với Bài 02:
 
-Nguyên tắc chính:
+| | Bài 02 | Bài 03 |
+|---|---|---|
+| Tay gắp | "gắp ảo": khối bám theo `tool0` bằng `set_pose` | **tay gắp 2 ngón** (`urdf/parallel_gripper.xacro`), điều khiển qua ros2_control. Vật được giữ bằng **lực kẹp + ma sát**; chương trình **không bao giờ đặt pose của vật** |
+| Khối | vật kinematic, tắt trọng lực | vật động lực học (khối lượng 50 g, trọng lực, ma sát) |
+| Vị trí khối | đọc từ `scene.yaml` | đo bằng **camera** (`perception.py`). `scene.yaml` chỉ chứa vị trí spawn mà launch dùng |
+| Zone bị chiếm | dùng `temp_zone` cố định | **tìm chỗ trống** trên bàn (`find_free_position`) → `temporary_position` |
+| Skill | home, pick, place, move_above, move_to_zone | **detect_objects, check_zone**, pick, place (zone hoặc `temporary_position`), home |
+| Kiểm tra | validator mô phỏng kế hoạch | validator mô phỏng trên trạng thái camera, **tự chèn bước dọn zone** nếu LLM quên; camera **kiểm tra kết quả** sau khi chạy |
 
-- **LLM chỉ chọn và sắp xếp skill** (`home`, `pick`, `place`, `move_above`, `move_to_zone`). Nó không bao giờ sinh góc khớp, quỹ đạo hay toạ độ.
-- **Plan Validator** kiểm tra kế hoạch trước khi chạy (schema + mô phỏng ngữ nghĩa): chặn skill lạ, khoá lạ như `joints`, vật/vùng không tồn tại, đặt chồng vật, gắp khi tay đang đầy… Kế hoạch sai bị từ chối, robot không chuyển động.
-- **Nhiệm vụ cá nhân theo MSSV**: `P = XX mod 6` (XX là hai chữ số cuối), tính tự động từ `config/student_config.yaml`.
-- Mức nâng cao có xử lý bế tắc bằng **vùng tạm** (`temp_zone`).
+Nguyên tắc:
+
+- **LLM chỉ hiểu câu lệnh, chọn skill, xác định tham số và sắp thứ tự.** LLM không sinh góc khớp, quỹ đạo hay toạ độ; validator chặn mọi khoá lạ như `joints` hoặc `trajectory`.
+- **Kế hoạch luôn được kiểm tra trước khi thực thi** (schema + mô phỏng ngữ nghĩa trên trạng thái do camera đo).
+- **Camera là nguồn duy nhất** cho vị trí khối và trạng thái zone. Robot chụp lại trước mỗi `pick`/`place` (vòng kín).
 
 ### Cấu trúc thư mục
 
 ```
 ur3_llm_control/
-├── launch/llm_robot.launch.py       # Gazebo + UR3e + bàn/khối/vùng + MoveIt 2 + RViz
-├── worlds/llm_table.world           # world gz-sim tối thiểu
+├── launch/llm_robot.launch.py       # Gazebo + UR3e/tay gắp + bàn/5 khối/3 zone/camera + controllers + MoveIt 2 + RViz
+├── urdf/
+│   ├── parallel_gripper.xacro       # tay gắp 2 ngón tự xây dựng (+ ros2_control cho Gazebo)
+│   └── ur_with_gripper.urdf.xacro   # UR (ur_description) + tay gắp gắn vào tool0
+├── srdf/ur_with_gripper.srdf.xacro  # SRDF của UR + cặp link tay gắp bỏ qua va chạm
+├── worlds/llm_table.world           # world gz-sim (physics, sensors/ogre2, ánh sáng)
 ├── config/
-│   ├── scene.yaml                   # vị trí bàn, khối, vùng, tham số chuyển động
-│   ├── student_config.yaml          # họ tên + MSSV   ← sửa theo MSSV của bạn
+│   ├── scene.yaml                   # bàn, zone, màu khối, camera, tay gắp, chuyển động (+ vị trí spawn)
+│   ├── ur_gripper_controllers.yaml  # controllers UR + gripper_controller
+│   ├── student_config.yaml          # họ tên + MSSV
 │   ├── llm_config.yaml              # backend LLM đang dùng (mặc định: Ollama)
-│   └── llm_config_9router.yaml      # mẫu cấu hình cho 9Router / API kiểu OpenAI
-├── prompts/system_prompt.txt        # prompt gửi LLM (tự điền skill/object/zone/trạng thái)
+│   └── llm_config_9router.yaml      # mẫu cấu hình 9Router / API kiểu OpenAI
+├── prompts/system_prompt.txt        # prompt gửi LLM (tự điền skill/object/zone/trạng thái camera)
 ├── ur3_llm_control/
-│   ├── commander_node.py            # node "llm_commander": nhận lệnh, in kết quả
+│   ├── commander_node.py            # node "llm_commander": camera → LLM → validator → executor → kiểm tra
 │   ├── llm_planner.py               # gọi LLM, dựng prompt, vòng lặp LLM tự sửa
-│   ├── task_validator.py            # whitelist skill + schema + mô phỏng ngữ nghĩa
+│   ├── task_validator.py            # whitelist skill + schema + mô phỏng + chèn bước dọn zone
 │   ├── skill_executor.py            # chạy tuần tự kế hoạch hợp lệ
-│   ├── robot_skills.py              # home/pick/place/... qua MoveIt 2 (pymoveit2)
-│   ├── gazebo_bridge.py             # "tay gắp ảo": khối bám theo tool0 trong Gazebo
+│   ├── robot_skills.py              # skill qua MoveIt 2 + điều khiển tay gắp
+│   ├── perception.py                # nhận dạng khối từ ảnh (numpy): màu → blob → toạ độ bàn + yaw
+│   ├── camera.py                    # lớp ROS bọc perception: ảnh mới, ảnh debug, marker RViz
+│   ├── free_space.py                # find_free_position(): chỗ trống trên bàn
 │   └── scene_config.py              # đọc YAML, tính P, WorldState
-├── test/test_planning_pipeline.py   # 19 unit test offline (không cần ROS)
-├── package.xml, setup.py, setup.cfg, resource/
-└── README.md
+├── test/test_planning_pipeline.py   # 27 unit test offline (không cần ROS)
+└── package.xml, setup.py, setup.cfg, resource/
 ```
 
 ---
@@ -61,11 +73,12 @@ ur3_llm_control/
 ## 2. Yêu cầu hệ thống
 
 - Ubuntu 22.04 (hoặc WSL2 Ubuntu 22.04 + WSLg), ROS 2 Humble.
-- Khuyến nghị ≥ 16 GB RAM. Không cần GPU (LLM chạy được trên CPU, nhưng chậm: xem mục 7).
+- Khuyến nghị ≥ 16 GB RAM. Camera Gazebo cần render bằng OpenGL; GPU tích hợp (Intel) là đủ. Không cần GPU cho LLM, nhưng chạy trên CPU sẽ chậm (xem mục 7).
 - Docker (nếu dùng Ollama) hoặc Node.js 18+ (nếu dùng 9Router).
 
 > **Anaconda/Miniconda:** đảm bảo `/usr/bin` đứng trước conda trong `$PATH` khi build/chạy
-> (`export PATH=/usr/bin:$PATH`) hoặc `conda deactivate`, nếu không `colcon`/`ros2 launch` sẽ lỗi `ModuleNotFoundError`.
+> (`export PATH=/usr/bin:$PATH`) hoặc `conda deactivate`.
+> Phần nhận dạng ảnh chỉ dùng numpy (không dùng OpenCV/cv_bridge), nên vẫn chạy được khi máy có numpy 2.x cài bằng pip làm hỏng `cv2` của apt.
 
 ---
 
@@ -78,7 +91,7 @@ sudo apt update
 sudo apt install -y ros-humble-desktop python3-colcon-common-extensions python3-rosdep git xterm \
     ros-humble-ur ros-humble-moveit \
     ros-humble-ros-gz-sim ros-humble-ros-gz-bridge ros-humble-gz-ros2-control \
-    ros-humble-ros2-controllers python3-requests python3-yaml python3-pytest
+    ros-humble-ros2-controllers ros-humble-ros-gz-image python3-requests python3-yaml python3-numpy python3-pytest
 
 echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc && source ~/.bashrc
 ```
@@ -95,8 +108,8 @@ git clone --depth 1 -b humble https://github.com/UniversalRobots/Universal_Robot
 git clone https://github.com/AndrejOrsula/pymoveit2.git
 (cd pymoveit2 && git checkout 20e6ee5)      # phiên bản đã dùng khi phát triển
 
-# Gói của bài (nhánh assignments_2), đặt tên thư mục là ur3_llm_control
-git clone -b assignments_2 https://github.com/Maki1109/UR3_letter_writer.git ur3_llm_control
+# Gói của bài (nhánh assignments_3), đặt tên thư mục là ur3_llm_control
+git clone -b assignments_3 https://github.com/Maki1109/UR3_letter_writer.git ur3_llm_control
 
 cd ~/ur3_ws
 export PATH=/usr/bin:$PATH
@@ -179,14 +192,12 @@ Cần 2 terminal (đều đã `source ~/ur3_ws/install/setup.bash`, và `export 
 ros2 launch ur3_llm_control llm_robot.launch.py
 ```
 
-Đợi đến khi Gazebo hiện robot UR3e, bàn gỗ, 3 khối đỏ/vàng/xanh và các ô vùng, và log `move_group` báo `You can start planning now!`. Trong RViz có thể *Add → MarkerArray*, topic `/scene_markers` để xem nhãn vùng.
-
-Tuỳ chọn launch:
+Đợi đến khi log báo `Configured and activated gripper_controller` và `You can start planning now!` (khoảng 10–30 s).
 
 | Tham số | Mặc định | Ý nghĩa |
 |---|---|---|
 | `ur_type` | `ur3e` | `ur3` hoặc `ur3e` |
-| `gazebo_gui` | `true` | `false` = chạy Gazebo không giao diện (dùng khi GUI bị crash do không có GPU) |
+| `gazebo_gui` | `true` | `false` = Gazebo không giao diện (camera vẫn hoạt động; dùng khi GUI bị crash) |
 | `launch_rviz` | `true` | `false` để không mở RViz |
 | `start_commander` | `false` | `true` = tự mở `llm_commander` trong cửa sổ `xterm` |
 
@@ -196,78 +207,111 @@ Tuỳ chọn launch:
 ros2 run ur3_llm_control llm_commander
 ```
 
-Node in thông tin MSSV, trạng thái thế giới, rồi chờ lệnh ở dấu nhắc `Command>`. Có thể chạy một lệnh rồi thoát:
+Khi khởi động, node mở tay gắp, đưa robot về home (tư thế dựng đứng, không che camera), chụp ảnh và in trạng thái thế giới đo được rồi chờ lệnh ở `Command>`. Chạy một lệnh rồi thoát:
 
 ```bash
-ros2 run ur3_llm_control llm_commander --ros-args -p command:="Move the blue cube to zone C"
+ros2 run ur3_llm_control llm_commander --ros-args -p command:="Put the red cube in Zone B."
 ```
 
-> Nếu chạy lại, hãy tắt hẳn launch cũ trước (Ctrl+C). Nếu còn tiến trình cũ (`move_group`, `ign gazebo`, `parameter_bridge`) thì `pkill -9` chúng rồi launch lại.
+**Quan sát camera:** `ros2 run rqt_image_view rqt_image_view` → chọn `/overhead_camera/image` (ảnh gốc) hoặc `/perception/debug_image` (có khung các khối đã nhận dạng). Trong RViz: *Add → MarkerArray*, topic `/perception/markers` (khối đo được; zone xanh = trống, đỏ = có vật).
+
+> Nếu chạy lại, hãy tắt hẳn launch cũ trước (Ctrl+C). Còn sót tiến trình (`move_group`, `ign gazebo`, `parameter_bridge`) thì `pkill -9` rồi launch lại. **Khởi động lại launch để đặt lại cảnh ban đầu.**
 
 ---
 
 ## 5. Demo
 
-### Mức cơ bản
+### Tình huống bắt buộc: zone đích đang bị chiếm
+
+Cảnh ban đầu: `blue_cube` nằm ở `zone_b`. Kết quả chạy thật (LLM: Ollama `mistral` 7B):
 
 ```
-Command> Please put the red cube in zone B.
-============================================================
 USER COMMAND:
-Please put the red cube in zone B.
+Put the red cube in Zone B.
+
+CAMERA (world state):
+- red_cube: on the table (not in any zone)
+- yellow_cube: on the table (not in any zone)
+- blue_cube: in zone_b
+- green_cube: in zone_c
+- purple_cube: on the table (not in any zone)
+- zone_a: free
+- zone_b: occupied by blue_cube
+- zone_c: occupied by green_cube
+- robot is holding: nothing
 
 LLM PLAN:
-pick(red_cube)
-place(red_cube, zone_b)
-home()
+  check_zone(zone_b)
+  pick(blue_cube)
+  place(blue_cube, temporary_position)
+  pick(red_cube)
+  place(red_cube, zone_b)
+  home()
 
 VALIDATION: PASSED
 
 EXECUTION:
-pick(red_cube) ............ SUCCESS
-place(red_cube, zone_b) ... SUCCESS
-home() .................... SUCCESS
+check_zone(zone_b) .................... SUCCESS   [zone_b occupied by blue_cube]
+pick(blue_cube) ....................... SUCCESS   [at x=0.360 y=0.000 yaw=3deg, finger gap 40 mm]
+place(blue_cube, temporary_position) .. SUCCESS   [free spot x=0.250 y=0.000]
+pick(red_cube) ........................ SUCCESS   [at x=0.240 y=0.120 yaw=15deg, finger gap 40 mm]
+place(red_cube, zone_b) ............... SUCCESS
+home() ................................ SUCCESS
 
 TASK SUCCESS
+
+CAMERA VERIFICATION:
+  blue_cube: expected temporary_position, camera sees table ... OK
+  red_cube: expected zone_b, camera sees zone_b ... OK
+  zones: zone_a=free, zone_b=red_cube, zone_c=green_cube
 ```
 
-Thử thêm các cách diễn đạt khác (không có câu nào được hard-code):
-`Hãy lấy khối màu vàng và đặt nó vào ô C.` · `Đưa vật màu đỏ sang vùng B.` · `Move the blue cube to zone A.`
+Luồng: camera thấy `zone_b` bị chiếm → `find_free_position()` chọn chỗ trống (cách mọi khối ≥ 10 cm, cách mọi zone ≥ 10 cm, trong tầm với, gần vật nhất) → dời `blue_cube` ra → gắp `red_cube` → đặt vào `zone_b` → home → camera kiểm tra.
 
-### Mức nâng cao
-
-```
-Command> Arrange all objects according to my student ID.
-```
-
-LLM nhận trạng thái hiện tại và bố trí đích theo MSSV rồi tự sinh chuỗi `pick`/`place`. Nếu vùng đích đang bị vật khác chiếm, kế hoạch dùng `temp_zone` để dời vật chặn. Kịch bản demo hay: chạy ba lệnh `red → B`, `yellow → C`, `blue → A` (được A=blue, B=red, C=yellow), rồi ra lệnh sắp xếp. Với MSSV 23020762 (đích A=yellow, B=red, C=blue) sẽ thấy kế hoạch tối ưu 3 lần di chuyển:
+**Lưới an toàn:** nếu LLM quên bước dọn zone, validator tự chèn các bước đó và đánh dấu:
 
 ```
-pick(blue_cube)   → place(blue_cube, temp_zone)
-pick(yellow_cube) → place(yellow_cube, zone_a)
-pick(blue_cube)   → place(blue_cube, zone_c)
-home()
+Command> /plan {"plan":[{"skill":"pick","object":"purple_cube"},{"skill":"place","object":"purple_cube","zone":"zone_a"},{"skill":"home"}]}
+PLAN (LLM + validator):
+  check_zone(zone_a)   <- added by validator (zone occupied)
+  pick(yellow_cube)   <- added by validator (zone occupied)
+  place(yellow_cube, temporary_position)   <- added by validator (zone occupied)
+  pick(purple_cube)
+  place(purple_cube, zone_a)
+  home()
 ```
+
+(Tắt tính năng này bằng `-p auto_resolve_occupied_zones:=false`; khi đó kế hoạch bị từ chối với lỗi `ZONE_OCCUPIED` và lỗi được gửi lại cho LLM sửa.)
+
+### Nhiều vật, nhiều bước: sắp xếp theo MSSV
+
+```
+Command> Sắp xếp các khối theo MSSV của tôi.
+```
+
+Với MSSV 23020762 (A=yellow, B=red, C=blue) và trạng thái sau demo trên (B=red, C=green), LLM sinh kế hoạch dời `green_cube` ra chỗ trống, đặt `yellow_cube` → A, `blue_cube` → C và không động vào `red_cube` (đã đúng chỗ). Camera kiểm tra: `zone_a=yellow_cube, zone_b=red_cube, zone_c=blue_cube`.
+
+Các câu lệnh khác (không có câu nào được hard-code): `Move the purple cube to zone A.` · `Hãy lấy khối màu xanh lá và đặt nó vào ô C.` · `Put the yellow block somewhere free.`
 
 ### Kiểm tra Plan Validator (kế hoạch sai bị từ chối)
 
 ```
-Command> Put the green cube in zone D.
+Command> Put the orange cube in zone D.
 Command> /plan {"plan":[{"skill":"throw","object":"red_cube"}]}
 Command> /plan {"plan":[{"skill":"home","joints":[0,0,0,0,0,0]}]}
 Command> /plan {"plan":[{"skill":"pick","object":"red_cube"},{"skill":"pick","object":"blue_cube"}]}
 ```
 
-`/plan` đưa JSON thẳng vào validator (bỏ qua LLM). Kết quả: `VALIDATION: REJECTED ... TASK REJECTED (nothing was executed)`.
+Kết quả: `VALIDATION: REJECTED ... TASK REJECTED (nothing was executed)`.
 
 ### Lệnh đặc biệt trong `Command>`
 
 | Lệnh | Ý nghĩa |
 |---|---|
-| `/state` | in trạng thái thế giới (vật nào ở đâu, tay đang cầm gì) |
+| `/state` | chụp ảnh, in trạng thái (kèm toạ độ x, y, yaw từ camera) |
 | `/student` | in MSSV, P và bố trí đích |
-| `/plan <json>` | đưa kế hoạch JSON thẳng vào validator |
-| `/home` | đưa robot về tư thế home |
+| `/plan <json>` | đưa kế hoạch JSON thẳng vào validator (bỏ qua LLM) |
+| `/home`, `/open`, `/close` | về home / mở / đóng tay gắp |
 | `/help`, `/quit` | trợ giúp / thoát |
 
 ---
@@ -277,16 +321,18 @@ Command> /plan {"plan":[{"skill":"pick","object":"red_cube"},{"skill":"pick","ob
 Không cần ROS hay Gazebo:
 
 ```bash
-cd ~/ur3_ws/src/ur3_llm_control && python3 -m pytest test -v      # 19 passed
+cd ~/ur3_ws/src/ur3_llm_control && python3 -m pytest test -v      # 27 passed
 ```
+
+Gồm: validator (hợp lệ, từ chối, tự chèn bước dọn zone, `temporary_position`), nhận dạng khối trên ảnh tổng hợp đúng phối cảnh của camera (sai số < 3 mm, < 3°), `find_free_position`, prompt, vòng lặp LLM tự sửa.
 
 ---
 
 ## 7. Lưu ý về LLM chạy trên CPU
 
-- **Lệnh đầu tiên sau khi khởi động lạnh** phải nạp mô hình vào RAM và đánh giá prompt (~1 phút). `llm_commander` chạy bước *warm-up* nền khi khởi động nên thường không phải chờ; `timeout_sec: 180` đủ cho trường hợp này.
-- Mỗi lệnh sau đó mất khoảng 12–45 giây cho bước lập kế hoạch (mô hình 7B chạy CPU ~5–6 token/s). Robot chạy một skill chỉ mất vài giây.
-- Prompt được sắp xếp *phần tĩnh trước, phần động (trạng thái thế giới) sau cùng* để Ollama tái sử dụng KV-cache giữa các lệnh; đừng chèn nội dung thay đổi vào đầu prompt.
+- Lệnh đầu tiên sau khi khởi động lạnh phải nạp mô hình (~1 phút); `llm_commander` chạy *warm-up* nền khi khởi động.
+- Mỗi lệnh mất khoảng 15–60 giây để lập kế hoạch (mô hình 7B chạy CPU). Mỗi pick/place mất khoảng 5–10 giây.
+- Prompt được sắp *phần tĩnh trước, trạng thái camera sau cùng* để Ollama tái sử dụng KV-cache.
 
 ---
 
@@ -294,23 +340,23 @@ cd ~/ur3_ws/src/ur3_llm_control && python3 -m pytest test -v      # 19 passed
 
 | Hiện tượng | Nguyên nhân / cách xử lý |
 |---|---|
-| `LLM call failed: ... Connection refused` | LLM chưa chạy: `sudo docker start ollama` (hoặc chạy `9router`); kiểm tra `base_url` trong `config/llm_config.yaml`. |
-| `LLM call failed: ... Read timed out` | Máy chậm/lần gọi đầu: tăng `timeout_sec`; đảm bảo không có tiến trình nặng khác. |
+| `No camera image on /overhead_camera/image` | Camera chưa render: xem log Terminal 1 (lỗi OpenGL/ogre2). Kiểm tra `ign topic -l \| grep overhead`. |
+| `OBJECT_NOT_FOUND` | Camera không thấy khối (rơi khỏi bàn, bị che). Gõ `/state` để xem; khởi động lại launch để đặt lại cảnh. |
+| `GRASP_FAILED` | Ngón khép hết mà không kẹp được vật (khe hở < 30 mm). `pick` tự thử lại 1 lần sau khi chụp lại ảnh. |
+| `NO_FREE_POSITION` | Bàn quá chật; nới `free_space` trong `scene.yaml`. |
+| `LLM call failed: ... Connection refused` | LLM chưa chạy: `sudo docker start ollama` (hoặc chạy `9router`). |
 | `LLM API HTTP 404` | `api_type` không khớp backend: `ollama` cho Ollama, `openai` cho 9Router. |
-| `HTTP 401` (9Router) | Chưa `export NINEROUTER_API_KEY=...` trong terminal chạy commander. |
-| `Waiting for MoveIt move_group` mãi | MoveIt chưa lên; xem log Terminal 1 (đợi ~30–60 s). |
-| Gazebo GUI tự thoát/crash (không có GPU) | Chạy `gazebo_gui:=false`; vẫn quan sát được robot bằng RViz. |
-| `PLANNING_FAILED` thỉnh thoảng | OMPL ngẫu nhiên; thử lại lệnh. Nếu luôn fail ở một vùng, kiểm tra vị trí trong `config/scene.yaml`. |
-| `gz-sim 'set_pose' service not found` | Bridge/world chưa lên; khối sẽ không di chuyển trong Gazebo. Khởi động lại launch. |
-| Khối lệch vị trí sau khi khởi động lại commander | Vị trí ban đầu lấy từ `scene.yaml`; khởi động lại cả launch để spawn lại khối. |
+| `Waiting for MoveIt move_group` mãi | MoveIt chưa lên; xem log Terminal 1. |
+| Gazebo GUI crash (không có GPU) | Chạy `gazebo_gui:=false`; camera vẫn render được, quan sát bằng RViz / rqt_image_view. |
+| `PLANNING_FAILED` thỉnh thoảng | OMPL ngẫu nhiên; thử lại lệnh. |
 | `ModuleNotFoundError` khi build/chạy | Đang dùng Python của conda: `export PATH=/usr/bin:$PATH`. |
 
 ---
 
 ## 9. Ghi chú thiết kế
 
+- **Tay gắp**: hai ngón trượt trên khớp tịnh tiến, điều khiển vị trí qua `gripper_controller` (JointGroupPositionController) và `ign_ros2_control`. Ngón trái là *ngón tựa* (giới hạn lực 40 N), được đưa tới đúng nửa cạnh khối. Ngón phải là *ngón kẹp* (15 N), ra lệnh đóng hết nên bị khối chặn lại và ép khối vào ngón tựa. Nếu hai ngón cùng giới hạn lực thì khi cùng bị chặn, chúng cân bằng phiếm định: cả cặp ngón + khối trôi sang một bên khi mang đi (đo được lệch ~2 cm). Lực không đều nhau làm khối luôn nằm giữa tay. Kết quả kẹp được kiểm tra bằng khe hở ngón: ≈ 40 mm là đang giữ vật, < 30 mm là trượt.
+- **Camera / nhận dạng** (`perception.py`): RGB → HSV, tách màu theo ngưỡng hue của từng khối, lấy thành phần liên thông lớn nhất, giữ mặt trên (sáng nhất), chiếu từng pixel lên mặt phẳng `z = mặt trên khối` bằng nội tham số (`camera_info`) và pose camera (ngoại tham số cố định trong `scene.yaml`). Yaw lấy từ hình chữ nhật bao nhỏ nhất. Sai số đo trong Gazebo < 1 mm và < 1°. Một khối bị che quá nửa thì giữ vị trí cũ; nếu cần gắp vật đang bị che, robot về home rồi chụp lại.
+- **Zone**: vị trí zone là hạ tầng cố định (`scene.yaml`); trạng thái *trống / có vật* suy ra từ vị trí khối camera đo (tâm khối cách tâm zone < 4.5 cm).
+- **MoveIt 2**: URDF có tay gắp nên MoveIt kiểm tra va chạm của cả tay gắp. Bàn và các khối (từ camera) nằm trong Planning Scene; khối đang kẹp được attach vào `tool0`. Hạ/nâng dùng đường thẳng Cartesian. Di chuyển tự do giải IK với seed cố định rồi lập kế hoạch theo không gian khớp, loại các quỹ đạo xoay cả vòng.
 - Danh sách skill hợp lệ nằm ở một nơi duy nhất (`SKILL_SPECS` trong `task_validator.py`); prompt, validator và bảng điều phối của executor đều dựa vào đó.
-- Mọi chuyển động qua MoveIt 2: kiểm tra giới hạn khớp, tự va chạm và va chạm môi trường (bàn và ba khối nằm trong Planning Scene; khối đang cầm được attach vào `tool0`). Hạ/nâng dùng đường thẳng Cartesian (yêu cầu ≥ 95% điểm giải được IK).
-- Bước di chuyển tự do giải IK với seed là tư thế home rồi lập kế hoạch theo không gian khớp, và loại các quỹ đạo lệch nhánh (khớp xoay quá lớn) — tránh nghiệm IK lệch $2\pi$ làm robot xoay cả vòng.
-- UR3e không có tay gắp: khối là vật kinematic trong Gazebo, bám theo `tool0` qua dịch vụ `set_pose` khi "gắp" (xem `gazebo_bridge.py`).
-- Vị trí ban đầu của các khối lấy từ `scene.yaml` (đề bài cho phép khai báo trước), không dùng camera.

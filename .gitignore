@@ -19,3 +19,7 @@
 !ur3_llm_control/*.py
 !test/
 !test/*.py
+!urdf/
+!urdf/*.xacro
+!srdf/
+!srdf/*.xacro

@@ -2,9 +2,9 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>ur3_llm_control</name>
-  <version>0.1.0</version>
+  <version>0.3.0</version>
   <description>
-    Điều khiển UR3/UR3e trong Gazebo bằng câu lệnh ngôn ngữ tự nhiên.
+    Điều khiển UR3/UR3e + tay gắp song song + camera trong Gazebo bằng câu lệnh ngôn ngữ tự nhiên.
     LLM (Ollama hoặc 9Router) chỉ sinh kế hoạch skill dạng JSON; Plan Validator kiểm
     tra; Skill Executor thực thi từng skill qua MoveIt 2.
   </description>
@@ -15,8 +15,7 @@
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>visualization_msgs</exec_depend>
   <exec_depend>moveit_msgs</exec_depend>
-  <exec_depend>ros_gz_interfaces</exec_depend>
-  <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>ament_index_python</exec_depend>
   <exec_depend>pymoveit2</exec_depend>
   <exec_depend>python3-requests</exec_depend>
@@ -30,6 +29,11 @@
   <exec_depend>ros_gz_bridge</exec_depend>
   <exec_depend>gz_ros2_control</exec_depend>
   <exec_depend>controller_manager</exec_depend>
+  <exec_depend>position_controllers</exec_depend>
+  <exec_depend>joint_trajectory_controller</exec_depend>
+  <exec_depend>joint_state_broadcaster</exec_depend>
+  <exec_depend>moveit_ros_move_group</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
   <exec_depend>robot_state_publisher</exec_depend>
   <exec_depend>xacro</exec_depend>
 

@@ -1,8 +1,8 @@
 <?xml version="1.0" ?>
 <!-- World cho Gazebo Sim (gz-sim / Ignition Fortress, đi kèm ROS 2 Humble qua ros_gz).
-     Chỉ có physics + user-commands (cho service "/world/.../set_pose" dùng bởi
-     gazebo_bridge.py) + scene-broadcaster (để RViz/GUI thấy scene) + ánh sáng.
-     Bàn, khối và các vùng được launch file spawn từ config/scene.yaml
+     physics + user-commands (cho "ros_gz_sim create" spawn vật) + scene-broadcaster
+     + sensors (render ảnh cho camera, ogre2) + ánh sáng.
+     Bàn, 5 khối, các zone và camera được launch file spawn từ config/scene.yaml
      (xem hàm spawn_scene trong launch/llm_robot.launch.py). -->
 <sdf version="1.9">
   <world name="llm_table_world">
@@ -14,6 +14,9 @@
     <plugin filename="ignition-gazebo-user-commands-system" name="gz::sim::systems::UserCommands"></plugin>
     <plugin filename="ignition-gazebo-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"></plugin>
     <plugin filename="ignition-gazebo-contact-system" name="gz::sim::systems::Contact"></plugin>
+    <plugin filename="ignition-gazebo-sensors-system" name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
 
     <gui fullscreen="0">
       <plugin filename="MinimalScene" name="3D View">
@@ -67,9 +70,9 @@
     </gui>
 
     <light type="directional" name="sun">
-      <cast_shadows>true</cast_shadows>
+      <cast_shadows>false</cast_shadows>
       <pose>0 0 10 0 0 0</pose>
-      <diffuse>0.8 0.8 0.8 1</diffuse>
+      <diffuse>0.9 0.9 0.9 1</diffuse>
       <specular>0.2 0.2 0.2 1</specular>
       <attenuation>
         <range>1000</range>
@@ -77,7 +80,7 @@
         <linear>0.01</linear>
         <quadratic>0.001</quadratic>
       </attenuation>
-      <direction>-0.5 0.1 -0.9</direction>
+      <direction>-0.2 0.1 -0.95</direction>
     </light>
   </world>
 </sdf>

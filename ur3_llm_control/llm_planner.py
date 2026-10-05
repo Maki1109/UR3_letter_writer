@@ -1,8 +1,8 @@
-"""LLM Planner: câu lệnh tự nhiên -> kế hoạch JSON (qua 9Router).
+"""LLM Planner: câu lệnh tự nhiên -> kế hoạch JSON (qua 9Router hoặc Ollama).
 
 - Dựng system prompt từ prompts/system_prompt.txt, điền danh sách skill,
-  object, zone, trạng thái thế giới hiện tại và nhiệm vụ cá nhân theo MSSV.
-- Gọi endpoint OpenAI-compatible /chat/completions của 9Router.
+  object, zone, trạng thái thế giới DO CAMERA ĐO và nhiệm vụ cá nhân theo MSSV.
+- Gọi endpoint OpenAI-compatible /chat/completions (9Router) hoặc /api/chat (Ollama).
 - Nếu Plan Validator từ chối, gửi lỗi lại cho LLM để nó tự sửa (tối đa
   max_repair_attempts lần). Sau đó vẫn sai -> từ chối thực thi.
 
@@ -111,41 +111,34 @@ class NineRouterClient:
 
 
 def arrangement_status(student: StudentTask, world: WorldState) -> str:
-    """So sánh trạng thái hiện tại với bố trí đích theo MSSV (dữ kiện thuần tuý cho LLM)."""
-    lines, misplaced = [], {}
+    """So sánh trạng thái (camera) với bố trí đích theo MSSV (dữ kiện thuần tuý cho LLM)."""
+    lines = []
     for zone, obj in student.zone_to_object.items():
         cur = world.location_of(obj)
         if cur == zone:
             lines.append(f"- {obj}: in {cur}, target {zone} -> already correct, do NOT move it")
             continue
         occ = world.occupant_of(zone)
-        misplaced[obj] = occ
-        note = (f"{zone} is occupied by {occ}, so {occ} must leave first"
-                if occ else f"{zone} is free")
-        lines.append(f"- {obj}: in {cur}, target {zone} -> MUST MOVE ({note})")
-    if misplaced and all(occ in misplaced for occ in misplaced.values()):
-        lines.append("NOTE: every misplaced object's target zone is occupied by another "
-                     "misplaced object (a cycle). Park one of them in temp_zone first, "
-                     "place the others, then move the parked object to its target zone.")
+        note = (f"{zone} is occupied by {occ}, so {occ} must leave first" if occ else f"{zone} is free")
+        lines.append(f"- {obj}: {cur}, target {zone} -> MUST MOVE ({note})")
     return "\n".join(lines)
 
 
 def build_system_prompt(template: str, scene: SceneConfig, student: StudentTask,
                         world: WorldState) -> str:
     objects = "\n".join(f"- {o.name} ({o.color} cube)" for o in scene.objects.values())
-    zones = "\n".join(
-        f"- {z.name} ({z.label}{', temporary buffer area' if z.is_temporary else ''})"
-        for z in scene.zones.values())
+    zones = "\n".join(f"- {z.name} ({z.label})" for z in scene.zones.values())
     arrangement = "\n".join(f"- {z} <- {o}" for z, o in student.zone_to_object.items())
     student_block = (f"Student: {student.student_name}, student ID {student.student_id}. "
                      f"Last two digits {student.last_two:02d}, P = {student.last_two} mod 6 = "
                      f"{student.p}.\nTarget arrangement:\n{arrangement}")
+    # Phần tĩnh trước, phần động (trạng thái camera) sau cùng -> Ollama tái dùng KV-cache
     return (template
             .replace("{{SKILLS}}", skills_prompt_block())
             .replace("{{OBJECTS}}", objects)
             .replace("{{ZONES}}", zones)
-            .replace("{{WORLD_STATE}}", world.describe())
             .replace("{{STUDENT}}", student_block)
+            .replace("{{WORLD_STATE}}", world.describe())
             .replace("{{ARRANGEMENT_STATUS}}", arrangement_status(student, world)))
 
 

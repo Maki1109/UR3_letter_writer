@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SRDF của UR (ur_moveit_config) + cặp link tay gắp không cần kiểm tra va chạm. -->
+<robot xmlns:xacro="http://wiki.ros.org/xacro" name="$(arg name)">
+  <xacro:arg name="name" default="ur"/>
+  <xacro:arg name="prefix" default=""/>
+  <xacro:include filename="$(find ur_moveit_config)/srdf/ur_macro.srdf.xacro"/>
+  <xacro:ur_srdf name="$(arg name)" prefix="$(arg prefix)"/>
+
+  <disable_collisions link1="gripper_palm" link2="wrist_3_link" reason="Adjacent"/>
+  <disable_collisions link1="gripper_palm" link2="wrist_2_link" reason="Never"/>
+  <disable_collisions link1="gripper_palm" link2="gripper_left_finger" reason="Adjacent"/>
+  <disable_collisions link1="gripper_palm" link2="gripper_right_finger" reason="Adjacent"/>
+  <disable_collisions link1="gripper_left_finger" link2="gripper_right_finger" reason="Never"/>
+  <disable_collisions link1="gripper_left_finger" link2="wrist_3_link" reason="Never"/>
+  <disable_collisions link1="gripper_right_finger" link2="wrist_3_link" reason="Never"/>
+  <disable_collisions link1="gripper_left_finger" link2="wrist_2_link" reason="Never"/>
+  <disable_collisions link1="gripper_right_finger" link2="wrist_2_link" reason="Never"/>
+</robot>

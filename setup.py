@@ -6,7 +6,7 @@ package_name = "ur3_llm_control"
 
 setup(
     name=package_name,
-    version="0.1.0",
+    version="0.3.0",
     packages=[package_name],
     data_files=[
         ("share/ament_index/resource_index/packages", ["resource/" + package_name]),
@@ -15,12 +15,14 @@ setup(
         ("share/" + package_name + "/config", glob("config/*.yaml")),
         ("share/" + package_name + "/prompts", glob("prompts/*.txt")),
         ("share/" + package_name + "/worlds", glob("worlds/*.world")),
+        ("share/" + package_name + "/urdf", glob("urdf/*.xacro")),
+        ("share/" + package_name + "/srdf", glob("srdf/*.xacro")),
     ],
     install_requires=["setuptools", "requests", "PyYAML"],
     zip_safe=True,
     maintainer="student",
     maintainer_email="student@example.com",
-    description="Điều khiển UR3/UR3e bằng câu lệnh tự nhiên: LLM (Ollama hoặc 9Router) -> skill plan -> MoveIt 2",
+    description="Điều khiển UR3/UR3e + tay gắp + camera bằng câu lệnh tự nhiên: LLM -> skill plan -> MoveIt 2",
     license="Apache-2.0",
     tests_require=["pytest"],
     entry_points={
