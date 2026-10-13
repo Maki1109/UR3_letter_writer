@@ -1,0 +1,10 @@
+# Sinh tự động / tạm
+overlay/
+logs/
+__pycache__/
+*.pyc
+# Pose graph của SLAM Toolbox (nặng, không bắt buộc) và các bản sao lưu map
+maps/*.posegraph
+maps/*.data
+maps/map_[0-9]*
+Screenshot*.png
