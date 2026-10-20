@@ -1,0 +1,10 @@
+# Phần 2 – Tọa độ mục tiêu trong frame map (m, độ). Đo bằng Publish Point (/clicked_point) và /amcl_pose
+# trên bản đồ maps/map.yaml của bài 04. Hướng yaw chọn để camera nhìn vào các vật thể khi tới nơi.
+# Không đặt goal trong vùng phải: lối vào chỉ là khe ~0.7 m giữa đầu vách B và hộp box_3, robot hay kẹt ở đó.
+initial_pose: {x: 0.0, y: 0.0, yaw: 0.0}     # robot spawn trên dock = gốc bản đồ
+goals:
+  - {name: 'Goal 1 - bac hanh lang',  x: 2.00, y: 0.60, yaw: 70.0}    # nhìn lên đông bắc: người + ghế
+  - {name: 'Goal 2 - nam hanh lang',  x: 2.50, y: -1.00, yaw: -120.0} # nhìn xuống tây nam: trụ cứu hỏa
+  - {name: 'Goal 3 - phong trai',     x: 0.60, y: 0.60, yaw: 180.0}   # nhìn sang tây: sofa + người
+  # Goal có thể thêm điểm trung gian, ví dụ: via: [[3.70, -0.85, 180.0]]  (gửi bằng goThroughPoses)
+dwell: 4.0          # giây đứng lại ở mỗi goal cho YOLO quan sát
