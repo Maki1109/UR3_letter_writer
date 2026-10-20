@@ -167,14 +167,3 @@ Sau khi chạy node thì không cần chuột hay teleop. Nav2 tự lập kế h
     - chair          conf=0.71  box=(240,60)-(270,120)
 ```
 
-## Xử lý sự cố
-
-| Triệu chứng | Cách xử lý |
-|---|---|
-| `AttributeError: _ARRAY_API not found` khi import cv_bridge | Chạy qua `scripts/*.sh` (nạp `.pydeps` có numpy<2), hoặc `source scripts/env.sh` trước |
-| Lần đầu chạy `make_world.py` báo lỗi tải model | Lần đầu cần Internet để tải 5 model từ Gazebo Fuel về cache `~/.ignition/fuel`. Sau đó model được chép vào overlay và Gazebo chạy offline |
-| Patrol đứng ở "Waiting for amcl_pose" | Localization chưa chạy, hoặc Nav2 chưa báo `Managed nodes are active` |
-| YOLO FPS thấp | Máy chạy bằng CPU. Thử `-p threads:=4` hoặc `-p imgsz:=256` |
-| Gazebo/Nav2 rất chậm khi chạy YOLO | Ultralytics tự đặt torch dùng 8 luồng ở lần `predict` đầu, và OpenBLAS cũng tạo luồng chờ bận. Node đặt lại `threads` sau warm-up và `04_yolo.sh` đặt `OMP/MKL/OPENBLAS_NUM_THREADS`; hãy chạy node qua script |
-| Robot kẹt ở khe vào vùng phải, nhiều recovery | Kiểm tra Nav2 đang dùng `config/nav2.yaml` (chạy qua `03_nav2.sh`) |
-| Còn tiến trình cũ, `/clock` có nhiều publisher, log báo "more than one action server" | `./scripts/stop_all.sh` (bản của bài 05 dọn cả node YOLO và Patrol) |
