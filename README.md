@@ -1,169 +1,188 @@
-# Bài thực hành 05 – TurtleBot 4: Localization, Autonomous Navigation và nhận diện vật thể bằng YOLO
+# Bài thực hành 06 – Giao tiếp phi ngôn ngữ: điều khiển TurtleBot 4 bằng cử chỉ tay
 
-Dùng lại bản đồ đã quét ở bài 04 (`../maps/map.yaml`, `../maps/map.pgm`, world `room` 7 x 5 m) để
-localization bằng AMCL. Một ROS 2 node Python dùng **Nav2 Simple Commander** để robot tự đi qua 3 goal. Node
-thứ hai lấy ảnh camera OAK-D, chạy **YOLO11n** (ultralytics) và vẽ kết quả nhận diện.
+Webcam laptop → OpenCV → **MediaPipe Gesture Recognizer** → `/detected_gesture` (`std_msgs/String`) →
+máy trạng thái → `/cmd_vel` → TurtleBot 4 trong Ignition Gazebo (ROS 2 Humble).
 
-Repo chỉ chứa phần của bài 05: thư mục `btth5/` (node, cấu hình, script), bản đồ `maps/map.yaml` + `map.pgm` và vài script dùng chung
-ở `scripts/` (môi trường, overlay Gazebo, world `room`, khởi động sim). Mọi lệnh bên dưới chạy từ thư mục `btth5`.
+Repo chỉ chứa phần của bài 06: thư mục `btth6/` (node, launch file, script) và vài script dùng chung ở `scripts/`
+(môi trường, overlay Gazebo, world `room` làm nền cho world `open_arena`). Mọi lệnh bên dưới chạy từ thư mục `btth6`.
 
 ## Cấu trúc
 
 ```
-btth5/
+btth6/
   nodes/
-    patrol_navigator.py   Phần 3: initial pose -> đợi Nav2 -> undock -> Goal 1 -> 2 -> 3 (goToPose)
-    yolo_detector.py      Phần 4: /oakd/rgb/preview/image_raw -> cv_bridge -> YOLO -> OpenCV + /yolo/image_annotated
-  config/
-    goals.yaml            Phần 2: tọa độ (x, y, yaw) của các goal trong frame map
-    nav2.yaml             tham số Nav2 của TurtleBot 4, giảm inflation để qua khe hẹp (xem bên dưới)
-    nav_yolo.rviz         RViz2: map, LaserScan, particle AMCL, costmap, path + ảnh YOLO
+    gesture_recognition_node.py   Phần 2: webcam -> MediaPipe -> /detected_gesture + cửa sổ hiển thị
+    robot_behavior_node.py        Phần 3: /detected_gesture -> máy trạng thái -> /cmd_vel (đo bằng /odom)
+  launch/
+    gesture_control.launch.py     Gazebo (open_arena) + 2 node trong một lệnh
+  models/gesture_recognizer.task  model MediaPipe (float16, setup.sh tải về)
   scripts/
-    setup.sh              cài phụ thuộc (một lần)
-    make_world.py         sinh world room_objects = room + người, ghế, sofa, trụ cứu hỏa
-    01_sim.sh             Gazebo + TurtleBot 4 (world room_objects)
-    02_localization.sh    AMCL + map_server, nạp ../maps/map.yaml
-    03_nav2.sh            Nav2
-    rviz.sh               RViz2 với config/nav_yolo.rviz
-    set_initial_pose.sh   đặt initial pose thủ công (mặc định 0 0 0)
-    get_goal_coords.sh    in tọa độ từ /clicked_point (Publish Point) hoặc /amcl_pose
-    04_yolo.sh            chạy node YOLO
-    05_patrol.sh          chạy node điều hướng
-    run_demo.sh           mở tất cả các bước trên trong các tab terminal, đúng thứ tự phụ thuộc
-    wait_for.sh           đợi robot / localization / pose / nav2 / rviz sẵn sàng (run_demo.sh dùng)
-    auto_initial_pose.sh  tự đặt initial pose khi AMCL active, lặp tới khi có TF map -> base_link
-    stop_all.sh           tắt sạch Gazebo, Nav2 và các node của bài 05
-    test_run.sh           chạy tất cả ở nền, ghi log vào btth5/logs/ (để kiểm thử)
-  models/yolo11n.pt       trọng số YOLO (setup.sh tải về)
+    setup.sh            cài phụ thuộc (một lần)
+    make_world.py       sinh world open_arena: sân trống 7 x 7 m
+    01_sim.sh           Phần 1: Gazebo + TurtleBot 4 (world open_arena), tự đặt góc camera Gazebo
+    check_cmd_vel.sh    Phần 1: undock + gửi vận tốc quay qua /cmd_vel, so yaw trước/sau
+    webcam_test.sh      Phần 1: đọc và hiển thị webcam bằng OpenCV
+    02_gesture.sh       Phần 2: chạy gesture_recognition_node
+    03_behavior.sh      Phần 3: chạy robot_behavior_node
+    run_demo.sh         mở Sim, Behavior, Gesture trong các tab terminal, đúng thứ tự
+    view.sh             đặt lại camera Gazebo (xiên 45°, hoặc `view.sh top` nhìn từ trên xuống)
+    stop_all.sh         tắt sạch Gazebo và mọi node
 ```
 
-## Cài đặt
+## Cài đặt và build
 
-Bài này là các script và node Python, không có gói colcon cần build: không chạy `colcon build`. Trước tiên cần môi
-trường của bài 04 (thư mục cha `scripts/`, `maps/`: ROS 2 Humble, `ros-humble-turtlebot4-simulator`, Nav2, xem
-README gốc của repo, hoặc `../scripts/00_install.sh`). Sau đó cài phần riêng của bài 05:
+Yêu cầu: Ubuntu 22.04, ROS 2 Humble, `ros-humble-turtlebot4-simulator` (môi trường của bài 04: xem
+`../scripts/00_install.sh`), webcam.
 
 ```bash
-cd btth5
+git clone -b assignments_6 https://github.com/Maki1109/UR3_letter_writer.git
+cd UR3_letter_writer/btth6
+chmod +x scripts/*.sh scripts/*.py nodes/*.py
 ./scripts/setup.sh
 ```
 
-`setup.sh` cài `ros-humble-turtlebot4-navigation`, `ros-humble-nav2-simple-commander` và `ros-humble-cv-bridge`
-(cần sudo), tải `yolo11n.pt` và sinh world. Ngoài ra nó cài `ultralytics` và `numpy<2` vào thư mục `btth5/.pydeps`.
-Lý do: `~/.local` trên máy này có numpy 2.x, còn `cv_bridge` của ROS Humble được biên dịch với numpy 1.x nên báo
-lỗi `_ARRAY_API not found`. `scripts/env.sh` đưa `.pydeps` lên đầu `PYTHONPATH`, và chỉ làm vậy cho các node của bài
-này. torch, OpenCV và scipy dùng bản đã cài sẵn. Nếu cài theo đề (`pip install ultralytics opencv-python`) trên
-một máy dùng numpy 1.x thì cũng chạy được.
+Không cần `colcon build`: hai node là script Python chạy trực tiếp bằng `/usr/bin/python3` (có `rclpy` của ROS
+Humble). Bước "build" duy nhất là `setup.sh`, gồm cài thư viện Python, tải model và sinh world. Lần chạy đầu,
+`scripts/env.sh` còn tự sinh thư mục `../overlay/` (vài giây) từ các gói ROS đã cài.
 
-## Chạy demo (quay video)
+`setup.sh` cài `mediapipe==0.10.21`, `numpy<2` và `protobuf 4` vào `btth6/.pydeps`, tải `gesture_recognizer.task`
+và sinh world. Lý do dùng `.pydeps` giống bài 05: `~/.local` trên máy này có numpy 2.x, còn OpenCV hệ thống
+(`python3-opencv` 4.5.4) được biên dịch với numpy 1.x. Gói mediapipe được cài `--no-deps`, vì nó kéo theo
+`opencv-contrib-python` (cần numpy 2), jax và matplotlib. Node chỉ dùng MediaPipe Tasks nên không cần các gói đó.
 
-Hướng dẫn chi tiết từng bước khi quay: [HUONG_DAN_QUAY_VIDEO.md](btth5/HUONG_DAN_QUAY_VIDEO.md).
+## Chạy
 
-Cách nhanh nhất là mở tất cả trong một lệnh:
-
-```bash
-./scripts/run_demo.sh            # Sim, Localization, Nav2, RViz, YOLO, Patrol
-PATROL=0 ./scripts/run_demo.sh   # không tự chạy Patrol; tự gõ ./scripts/05_patrol.sh khi bắt đầu quay
-```
-
-Nếu muốn chạy từng bước (mỗi lệnh một terminal, gõ từ thư mục `btth5`):
-
-### Phần 1 – Simulation và Localization
+Một trong hai cách (gõ từ thư mục `btth6`):
 
 ```bash
-./scripts/01_sim.sh              # đợi robot xuất hiện trên dock (30–60 s)
-./scripts/02_localization.sh     # AMCL + map_server với ../maps/map.yaml
-./scripts/03_nav2.sh
-./scripts/rviz.sh
-./scripts/set_initial_pose.sh 0 0 0   # robot trên dock = gốc bản đồ (hoặc dùng 2D Pose Estimate)
+./scripts/run_demo.sh        # mở 3 tab terminal: Sim -> Behavior -> Gesture
+
+# hoặc dùng launch file
+source scripts/env.sh
+ros2 launch launch/gesture_control.launch.py                       # Gazebo + 2 node
+ros2 launch launch/gesture_control.launch.py sim:=false camera:=1  # sim đã chạy sẵn, webcam 1
 ```
 
-World `room_objects` có tường, vách và hộp giống hệt world `room` dùng để quét bản đồ ở bài 04. World này có thêm
-5 vật thể từ Gazebo Fuel, đặt sát tường để không chắn đường đi:
+Hoặc chạy từng bước, mỗi lệnh một terminal:
 
-| Vật thể | Lớp COCO | Vị trí (m) |
+```bash
+./scripts/01_sim.sh          # đợi robot xuất hiện trên dock (30–60 s)
+./scripts/check_cmd_vel.sh   # (Phần 1) kiểm tra /cmd_vel, có thể bỏ qua
+./scripts/webcam_test.sh     # (Phần 1) kiểm tra webcam, q để thoát
+./scripts/03_behavior.sh     # tự undock rồi tiến ra giữa sân, trạng thái IDLE
+./scripts/02_gesture.sh      # cửa sổ "Gesture Recognition - webcam"
+```
+
+Webcam khác: `./scripts/02_gesture.sh -p camera:=1`. Lần đầu khởi động, Gazebo đôi khi treo ở bước nạp world
+(log dừng ở `Creating postupdate worker thread`, robot không xuất hiện). Khi đó chạy `./scripts/stop_all.sh` rồi
+chạy lại.
+
+## Phần 1 – Simulation và webcam
+
+- World `open_arena`: sân phẳng 7 x 7 m (x ∈ [-5, 2], y ∈ [-3.5, 3.5]), chỉ có tường bao thấp. Một vòng tròn
+  xanh trên sàn đánh dấu vùng hoạt động. Robot spawn trên dock tại (0, 0). Sau khi undock và tiến ra 1 m, robot
+  đứng ở khoảng (-1.35, -0.2), cách tường gần nhất hơn 2.5 m.
+- `check_cmd_vel.sh` undock robot, publish `angular.z = 0.5` lên `/cmd_vel` trong 6 s, rồi in yaw trước và sau.
+- `webcam_test.sh` đọc webcam bằng `cv2.VideoCapture`, lật ảnh như gương và hiển thị kèm FPS.
+
+## Phần 2 – `gesture_recognition_node`
+
+Mỗi khung hình (khoảng 21 FPS trên máy này khi Gazebo đang chạy):
+
+1. `cv2.VideoCapture.read()`, lật ảnh như gương, đổi BGR sang RGB.
+2. `GestureRecognizer.recognize_for_video()` ở chế độ `VIDEO` (theo dõi tay giữa các khung, nhanh hơn chế độ
+   `IMAGE`), `num_hands=1`.
+3. Lấy cử chỉ có điểm cao nhất. Nếu `score < min_score` (0.6) thì coi là `None`.
+4. **Wave**: model của MediaPipe không có lớp vẫy tay, nên node tự nhận dạng. Node theo dõi vị trí ngang trung
+   bình của 5 đầu ngón tay, chia cho cỡ bàn tay (khoảng cách cổ tay tới gốc ngón giữa), nên kết quả không phụ thuộc
+   khoảng cách tới camera. Dùng đầu ngón thay vì lòng bàn tay vì khi vẫy bằng cách xoay quanh cổ tay, lòng bàn tay
+   gần như đứng yên. Nếu tâm đầu ngón đổi chiều trái/phải ít nhất 3 lần trong 1.5 s, mỗi lần dịch hơn 0.4 cỡ bàn tay,
+   và ít nhất 60% số khung là `Open_Palm` hoặc `None`, node trả về `Wave` và giữ nhãn này 1 s. Khung `None` được tính
+   vì khi vẫy nhanh, ảnh nhòe làm MediaPipe trả `None`: lúc thử thật, phần lớn khung có tay bị trả `None`, chỉ 24
+   khung được nhận là `Open_Palm`. Mất tay dưới 0.4 s (`hand_lost`) không xóa lịch sử. Trong lúc tay đang dịch nhanh, `Open_Palm` bị
+   bỏ qua, để động tác vẫy không bị hiểu là "dừng". Góc phải cửa sổ có chỉ báo `Wave n/3`.
+5. **Chống nhiễu**: một nhãn chỉ được chấp nhận khi xuất hiện liên tục `stable_frames` = 6 khung (khoảng 0.3 s).
+   Thanh tiến độ ở góc phải trên cửa sổ cho biết nhãn đang tích lũy đến đâu.
+6. Publish nhãn ổn định lên `/detected_gesture` ở mỗi khung, kể cả `None` khi không có tay. Như vậy topic này
+   cũng là heartbeat cho Phần 3.
+
+Node nhận diện **8 cử chỉ**: `Open_Palm`, `Closed_Fist`, `Pointing_Up`, `Victory`, `Thumb_Up`, `Thumb_Down`,
+`ILoveYou` (của MediaPipe) và `Wave` (tự nhận dạng). `Thumb_Down` và `ILoveYou` chỉ được hiển thị và publish,
+không gán hành vi.
+
+Cửa sổ hiển thị 21 landmark của bàn tay, tên cử chỉ và độ tin cậy (%) của khung hiện tại, nhãn đã publish, FPS
+và trạng thái robot (lấy từ topic `/robot_behavior/state`). Phím `q`/`Esc` chỉ dùng để đóng cửa sổ, không điều
+khiển robot.
+
+| Tham số | Mặc định | Ý nghĩa |
 |---|---|---|
-| Standing person | person | (-1.5, 1.9), góc tây bắc phòng trái |
-| Sofa | couch | (-1.55, -0.2), sát tường tây phòng trái |
-| Fire hydrant | fire hydrant | (1.85, -2.1), góc tây nam hành lang giữa |
-| Casual female | person | (3.0, 2.1), góc đông bắc hành lang giữa |
-| Chair | chair | (1.8, 2.15), góc tây bắc hành lang giữa |
+| `camera` | 0 | chỉ số webcam |
+| `min_score` | 0.6 | ngưỡng độ tin cậy |
+| `stable_frames` | 6 | số khung liên tiếp để chấp nhận một cử chỉ |
+| `wave_window` / `wave_reversals` / `wave_swing` | 1.5 s / 3 / 0.4 | điều kiện nhận Wave |
+| `still_span` | 0.3 | Open_Palm chỉ được tính khi tay dịch ít hơn mức này trong 0.5 s |
+| `trace` | '' | đường dẫn CSV để ghi từng khung (nhãn, điểm, vị trí, số lần đổi chiều), dùng khi chẩn đoán |
 
-Kiểm tra trên RViz: bản đồ hiện đúng, robot nằm trên dock, các tia LaserScan (đỏ) trùng với tường đen của bản đồ
-và particle AMCL co cụm quanh robot. Các vật thể mới không có trên bản đồ, nên chúng chỉ hiện trong scan và
-costmap. AMCL vẫn định vị tốt vì phần lớn tia quét trúng tường.
+## Phần 3 – `robot_behavior_node`
 
-### Phần 2 – Tọa độ goal
-
-```bash
-./scripts/get_goal_coords.sh       # bấm Publish Point trên RViz rồi click lên bản đồ -> (x, y)
-./scripts/get_goal_coords.sh amcl  # pose hiện tại của robot (x, y, yaw)
-```
-
-Các goal đã chọn nằm trong `config/goals.yaml`. Hướng yaw được chọn để camera nhìn vào vật thể khi robot tới nơi:
-
-| Goal | Khu vực | x (m) | y (m) | yaw | Camera nhìn thấy |
-|---|---|---|---|---|---|
-| 1 | phía bắc hành lang giữa (sau khe vách A) | 2.00 | 0.60 | 70° | người, ghế |
-| 2 | phía nam hành lang giữa | 2.50 | -1.00 | -120° | trụ cứu hỏa |
-| 3 | phòng trái (gần dock) | 0.60 | 0.60 | 180° | sofa, người |
-
-Không đặt goal trong vùng phải (sau vách B): lối vào đó chỉ là một khe rộng khoảng 0.7 m giữa đầu vách B và hộp
-`box_3`. Khi thử nghiệm, robot vào được, nhưng lúc quay ra thường kẹt sát đầu vách, vì DWB của TurtleBot 4 không được
-phép lùi. Node vẫn hỗ trợ điểm trung gian: thêm `via: [[x, y, yaw], ...]` vào một goal thì goal đó được gửi bằng
-`goThroughPoses()`.
-
-### Phần 3 – Navigation tự động bằng code
-
-```bash
-./scripts/05_patrol.sh
-```
-
-`nodes/patrol_navigator.py` dùng `TurtleBot4Navigator` (lớp con của `nav2_simple_commander.BasicNavigator`, có
-thêm undock). Các bước:
-
-1. `setInitialPose` với pose trong `goals.yaml`, rồi `waitUntilNav2Active()`.
-2. Nếu robot đang trên dock thì `undock()`.
-3. Với mỗi goal: gọi `goToPose()` (action `/navigate_to_pose`). Goal nào có `via` thì gọi `goThroughPoses()`
-   (action `/navigate_through_poses`). Trong lúc chờ `isTaskComplete()`, node in quãng
-   đường còn lại mỗi 3 s. Nếu một goal quá 180 s thì node hủy goal đó. Tới nơi, robot đứng lại `dwell` giây để
-   YOLO quan sát.
-4. Cuối cùng node in bảng kết quả. Mã thoát là 0 nếu tới đủ mọi goal.
-
-Sau khi chạy node thì không cần chuột hay teleop. Nav2 tự lập kế hoạch đường đi qua hai khe vách và tránh vật cản.
-
-`config/nav2.yaml` là file tham số mặc định của `turtlebot4_navigation`, có 3 chỉnh sửa (tìm `# btth5` trong file):
-
-- `inflation_radius` 0.45 → 0.35 và `cost_scaling_factor` 4 → 5. Khe giữa đầu vách B và hộp `box_3` chỉ rộng
-  khoảng 0.7 m. Với inflation 0.45, vùng chi phí thấp còn khoảng 0.2 m, nên DWB liên tục báo `Failed to make progress`
-  và chạy recovery khi vào hoặc ra vùng phải. Inflation nhỏ hơn cũng giúp robot đi êm hơn qua khe vách A.
-- `movement_time_allowance` 10 → 20 s, vì mô phỏng trên máy này chạy chậm hơn thời gian thực.
-
-### Phần 4 – YOLO
-
-```bash
-./scripts/04_yolo.sh                    # cửa sổ OpenCV "TurtleBot4 camera - YOLO"
-./scripts/04_yolo.sh -p conf:=0.4       # đổi ngưỡng tin cậy (mặc định 0.3)
-```
-
-`nodes/yolo_detector.py` làm các bước sau:
-
-1. Subscribe `/oakd/rgb/preview/image_raw` (320 x 240, QoS sensor data).
-2. Đổi ảnh sang OpenCV bằng `CvBridge.imgmsg_to_cv2(..., 'bgr8')`.
-3. Chạy `YOLO('yolo11n.pt').predict(...)`, ngưỡng `conf` 0.3, và chỉ giữ các lớp có trong world (`classes`: person, chair,
-   couch, fire hydrant). Các box nhỏ hơn 150 px² (`min_area`) bị bỏ. Khi chưa lọc, ảnh mô phỏng (tường xám, sàn
-   phẳng) hay bị nhận nhầm thành umbrella, traffic light, handbag, dining table. Để nhận mọi lớp COCO, chạy
-   `./scripts/04_yolo.sh -p "classes:=['']"`. Node chỉ xử lý khung mới nhất, tối đa 10 Hz, và torch dùng 2 luồng
-   CPU để không tranh CPU với Gazebo.
-4. Vẽ bounding box, tên class và độ tự tin, sau đó:
-   - hiện kết quả trong cửa sổ OpenCV (phóng to 2 lần);
-   - publish lên `/yolo/image_annotated` (RViz hiện ở panel "YOLO Camera");
-   - publish tóm tắt lên `/yolo/detections` (`std_msgs/String`);
-   - in ra terminal mỗi khi tập vật thể thay đổi, hoặc 2 s một lần:
+| Cử chỉ | Hành vi |
+|---|---|
+| Wave | xoay trái–phải (±35°, 2 lượt) rồi về hướng cũ để chào lại; chạy ngay khi robot đang IDLE |
+| Pointing_Up | **chọn** tiến–lùi 4 lần (0.4 m, 0.2 m/s) |
+| Victory | **chọn** quỹ đạo tròn (bán kính 0.5 m, 0.2 m/s, đủ 360°) |
+| Thumb_Up | **xác nhận**: thực hiện hành vi đã chọn, hoặc chạy tiếp hành vi đang PAUSED |
+| Open_Palm | **dừng ngay**: robot đứng yên, hành vi chuyển sang PAUSED |
+| Closed_Fist | **hủy** hành vi hoặc lựa chọn hiện tại, về IDLE |
 
 ```
-[yolo_detector]: [t=  85.3s] 2 vật thể (8 FPS)
-    - person         conf=0.82  box=(205,45)-(230,75)
-    - chair          conf=0.71  box=(240,60)-(270,120)
+UNDOCKING -> CLEARING -> IDLE --Pointing_Up/Victory--> SELECTED --Thumb_Up--> EXECUTING --xong--> IDLE
+                          |                                                    |    ^
+                          +--Wave--> EXECUTING (chào)        Open_Palm /       v    | Thumb_Up
+                                                             mất tín hiệu     PAUSED
+Closed_Fist: SELECTED / EXECUTING / PAUSED -> IDLE
 ```
 
+Cách node đáp ứng từng yêu cầu của đề:
+
+- **Chỉ thực hiện sau khi xác nhận**: Pointing_Up và Victory chỉ chọn hành vi (trạng thái SELECTED). Robot chỉ
+  chạy khi nhận Thumb_Up. Thumb_Up khi chưa chọn gì thì bị bỏ qua. Riêng Wave là lời chào đáp lại nên chạy ngay,
+  và chỉ chạy khi robot đang IDLE.
+- **Không dùng bàn phím**: sau khi chạy `run_demo.sh`, mọi lệnh cho robot đều đến từ `/detected_gesture`.
+- **Chống kích hoạt liên tục**: ngoài bộ lọc 6 khung ở Phần 2, node chỉ phản ứng khi nhãn **đổi** sang một cử chỉ
+  mới. Giữ nguyên cử chỉ thì không lặp lệnh. Cùng một cử chỉ phải cách lần trước ít nhất `cooldown` = 1.5 s, nên
+  nhãn nhấp nháy kiểu `Victory → None → Victory` không kích hoạt hai lần. Open_Palm không có cooldown vì là lệnh
+  an toàn. Khi đang EXECUTING, Pointing_Up, Victory và Wave bị bỏ qua. Muốn đổi hành vi thì phải hủy trước.
+- **Dừng khi có lệnh dừng hoặc mất tín hiệu**: Open_Palm gửi `Twist()` = 0 ngay trong callback, rồi gửi tiếp vận
+  tốc 0 trong 0.5 s. Nếu không nhận `/detected_gesture` quá 1 s (node nhận diện bị tắt, webcam lỗi) hoặc mất
+  `/odom` quá 0.5 s, robot dừng và chuyển sang PAUSED. Muốn chạy tiếp phải giơ Thumb_Up.
+- **Không va chạm**: sân trống 7 x 7 m. Mọi chuyển động nằm trong bán kính khoảng 1 m quanh điểm xuất phát.
+  Sau khi undock, node tự tiến thêm 1 m để khi lùi robot không chạm dock.
+
+Quãng đường và góc quay được đo bằng `/odom` (vòng kín), có giảm tốc ở cuối mỗi đoạn. Vì vậy kích thước chuyển
+động vẫn đúng khi Gazebo chạy chậm hơn thời gian thực. Khi tiếp tục sau PAUSED, robot chỉ đi nốt phần còn lại của
+đoạn đang dở.
+
+**Lưu ý Create 3**: mặc định Create 3 không cho lùi quá khoảng 0.5 m. Khi vượt mức đó, hazard `BACKUP_LIMIT` được
+bật và robot đứng im giữa lượt lùi (đã gặp khi thử: lần lùi đầu tiên chỉ được 0.17 m). Node đặt tham số
+`/motion_control safety_override = backup_only` lúc khởi động. Sân mô phỏng phẳng, không có vực, nên tắt giới hạn
+này là an toàn. Muốn giữ cấu hình gốc thì chạy `-p safety_override:=''`.
+
+Kết quả thử trong mô phỏng (dùng một node giả publish chuỗi cử chỉ, đọc `/odom`):
+
+| Kịch bản | Kết quả |
+|---|---|
+| Undock + tiến ra | x: 0 → -0.35 (undock) → -1.14 m (với `clear_dock` = 0.8), sau đó IDLE |
+| Wave | yaw dao động khoảng ±35° quanh hướng ban đầu, kết thúc lệch ~3° |
+| Pointing_Up → Thumb_Up, Open_Palm giữa chừng, Thumb_Up | dừng ở đoạn 3/16, chạy tiếp, xong 16/16 và về x = -1.15 (bắt đầu ở -1.14) |
+| Victory → Thumb_Up, ngắt `/detected_gesture` 3 s | PAUSED sau 1 s mất tín hiệu, Thumb_Up thì chạy nốt vòng tròn |
+| Closed_Fist khi đang chạy | HỦY và về IDLE |
+| Vòng tròn đầy đủ | đường kính đo được khoảng 0.95 m (đặt 1.0 m) |
+| Thumb_Up khi chưa chọn | bỏ qua, có log nhắc |
+
+| Tham số | Mặc định |
+|---|---|
+| `linear_speed`, `fb_distance`, `fb_repeats` | 0.2 m/s, 0.4 m, 4 |
+| `circle_radius`, `circle_speed` | 0.5 m, 0.2 m/s |
+| `wave_angle`, `wave_speed`, `wave_repeats` | 0.6 rad, 1.2 rad/s, 2 |
+| `cooldown`, `signal_timeout`, `odom_timeout` | 1.5 s, 1.0 s, 0.5 s |
+| `auto_undock`, `clear_dock`, `safety_override` | true, 1.0 m, backup_only |

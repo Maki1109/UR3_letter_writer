@@ -8,7 +8,7 @@ maps/*.posegraph
 maps/*.data
 maps/map_[0-9]*
 Screenshot*.png
-# Bài 05: thư viện pip cục bộ, log, trọng số YOLO (setup.sh tải lại)
-btth5/.pydeps/
-btth5/logs/
-btth5/models/*.pt
+# Bài 06: thư viện pip cục bộ, log, model MediaPipe (setup.sh tải lại)
+btth6/.pydeps/
+btth6/logs/
+btth6/models/
