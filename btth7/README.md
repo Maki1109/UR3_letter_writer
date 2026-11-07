@@ -275,17 +275,3 @@ Nhận dạng câu nhiều điểm (2 file giọng đọc tổng hợp):
 Lộ trình tránh được các vật thể không có trên bản đồ (ghế, người, trụ cứu hỏa của world `room_objects`) nhờ
 costmap của Nav2. Giọng nói thật từ micro chưa được kiểm thử trong lần chạy này. Phần nhận dạng đã được kiểm thử
 với 6 file giọng đọc tổng hợp (bảng ở Phần 3); khi quay video, hãy kiểm tra micro bằng `./scripts/mic_test.sh`.
-
-## Xử lý sự cố
-
-| Triệu chứng | Cách xử lý |
-|---|---|
-| Tab Speech không phản ứng khi nói | `./scripts/mic_test.sh`: xem RMS. Nếu gần 0, chọn đúng micro (`arecord -L`, `-p device:=...`) và bật micro trong Settings → Sound |
-| Nói xong mà node nhận dạng liên tục cả tiếng ồn | Ngưỡng quá thấp: `-p threshold:=1500`, hoặc giữ im lặng 1 s lúc khởi động để node đo lại ồn nền |
-| Whisper chậm | `-p model:=base` (nhanh hơn, kém chính xác hơn), hoặc dùng `-p engine:=vosk` |
-| `numpy.core.multiarray failed to import` | Chạy qua `scripts/*.sh` (nạp `.pydeps` có numpy<2), hoặc `source scripts/env.sh` trước |
-| Voice Nav báo "Nav2 chưa sẵn sàng" | Đợi tab Nav2 báo `Managed nodes are active` (cần initial pose: `../btth5/scripts/set_initial_pose.sh 0 0 0`) |
-| RViz không thấy các khu vực | Display "Zones (btth7)" phải dùng topic `/zones/markers`, Durability = Transient Local; node Voice Nav phải đang chạy |
-| Đổi bản đồ / thêm phòng | Sửa `config/segmentation.yaml` (map, nhãn và `hint`), chạy `./scripts/segment.sh`, khởi động lại Voice Nav |
-| RViz không thấy đường dự kiến | Display "Planned route (btth7)": topic `/voice_nav/planned_path`, Durability = Transient Local |
-| Còn tiến trình cũ, `/clock` có nhiều publisher | `./scripts/stop_all.sh` |
