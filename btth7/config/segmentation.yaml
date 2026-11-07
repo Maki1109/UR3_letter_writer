@@ -1,0 +1,36 @@
+# Tham số phân vùng bản đồ + nhãn ngữ nghĩa cho tools/segment_map.py.
+# Kết quả được ghi vào config/zones.yaml (node điều hướng đọc file đó) và figures/zones.png.
+map: ../../maps/map.yaml          # bản đồ bài 04 (đường dẫn tương đối so với file này)
+
+segmentation:
+  close_kernel_m: 0.25      # đóng các lỗ nhỏ trên tường (tia laser lọt qua khi quét) trước khi tách vùng
+  furniture_max_area_m2: 1.0  # khối vật cản rời nhỏ hơn 1 m² (hộp, bàn ghế) không dùng để chia phòng
+  seed_min_clearance_m: 0.35  # chỉ tìm hạt giống ở nơi cách vật cản > 0.35 m (bỏ qua khe, góc hẹp)
+  seed_min_area_m2: 0.1     # một "lõi" phòng phải rộng ít nhất 0.1 m² mới thành một khu vực riêng
+  min_zone_area_m2: 1.0     # vùng nhỏ hơn bị gộp vào vùng kề có biên chung dài nhất
+
+goal:
+  min_clearance_m: 0.55     # điểm đích phải cách vật cản tĩnh >= 0.55 m (bán kính robot 0.17 m + inflation 0.35 m)
+  avoid:                    # vùng cấm đặt đích: [x, y, bán kính] (m)
+    - [-0.25, 0.0, 0.7]     # dock sạc (robot spawn tại gốc, dock ở phía sau) – không thấy trên bản đồ vì thấp hơn LiDAR
+
+# Gắn nhãn: khu vực tự động nào chứa điểm `hint` thì nhận id/tên/bí danh tương ứng.
+# Khu vực không có nhãn nào trỏ tới vẫn được giữ, tên mặc định "Khu vực <chữ cái>".
+# `aliases`: các cách gọi khác trong câu lệnh giọng nói (không dấu cũng được, bộ phân tích tự bỏ dấu).
+labels:
+  - id: A
+    name: Phòng học
+    hint: [-0.5, 1.0]
+    aliases: [phòng học, lớp học, phòng a]
+  - id: B
+    name: Hành lang
+    hint: [2.4, 1.0]
+    aliases: [hành lang, hành lang giữa, phòng b]
+  - id: C
+    name: Phòng thí nghiệm
+    hint: [4.2, 1.0]
+    aliases: [phòng thí nghiệm, phòng lab, phòng c]
+  - id: D
+    name: Sảnh
+    hint: [3.0, -1.5]
+    aliases: [sảnh, sảnh chính, phòng d]

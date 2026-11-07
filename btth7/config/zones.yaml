@@ -1,0 +1,67 @@
+# Sinh tự động bởi tools/segment_map.py từ config/segmentation.yaml – đừng sửa tay, hãy chạy lại tool.
+# center: tâm hình học của vùng; goal: điểm đích hợp lệ gửi cho Nav2 (frame map, m);
+# polygon: đường bao vùng, dùng để biết robot đang ở khu vực nào và vẽ trên RViz;
+# doors: điểm thoáng nhất trên biên chung của hai vùng kề nhau – robot đi qua đó khi chuyển vùng.
+frame_id: map
+map: ../../maps/map.yaml
+zones:
+- id: A
+  name: Phòng học
+  aliases: [phòng học, lớp học, phòng a]
+  center: [-0.27, 0.09]
+  goal: [-0.26, 0.71]
+  goal_clearance_m: 1.64
+  area_m2: 15.37
+  polygon:
+  - [-1.815, 2.405]
+  - [-1.865, -2.345]
+  - [1.285, -2.345]
+  - [1.285, 0.505]
+  - [1.435, 0.555]
+  - [1.485, 2.405]
+- id: B
+  name: Hành lang
+  aliases: [hành lang, hành lang giữa, phòng b]
+  center: [2.4, 0.93]
+  goal: [2.39, 0.81]
+  goal_clearance_m: 0.55
+  area_m2: 5.01
+  polygon:
+  - [1.535, 2.405]
+  - [1.535, -0.495]
+  - [3.285, -0.445]
+  - [3.285, 2.405]
+- id: C
+  name: Phòng thí nghiệm
+  aliases: [phòng thí nghiệm, phòng lab, phòng c]
+  center: [4.25, 0.94]
+  goal: [4.24, 0.96]
+  goal_clearance_m: 0.7
+  area_m2: 4.01
+  polygon:
+  - [3.585, 2.355]
+  - [3.535, -0.445]
+  - [4.885, -0.495]
+  - [4.935, 2.355]
+- id: D
+  name: Sảnh
+  aliases: [sảnh, sảnh chính, phòng d]
+  center: [3.18, -1.44]
+  goal: [3.19, -1.45]
+  goal_clearance_m: 0.8
+  area_m2: 6.19
+  polygon:
+  - [1.535, -0.545]
+  - [1.535, -2.345]
+  - [4.885, -2.395]
+  - [4.885, -0.545]
+doors:
+- zones: [A, B]
+  point: [1.44, 1.31]
+  clearance_m: 0.76
+- zones: [B, D]
+  point: [2.39, -0.5]
+  clearance_m: 0.9
+- zones: [C, D]
+  point: [4.19, -0.5]
+  clearance_m: 0.7
